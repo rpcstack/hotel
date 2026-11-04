@@ -28,6 +28,15 @@ The load generator (`hotel_client_bench`) sends `Search` and `Reservation`
 requests at a fixed rate, each carrying a Masa root context with its SLO, and
 writes one CSV row per request.
 
+## Deploy in one command
+
+Layout: `k8s/base` plus `k8s/overlays/<mode>` (kustomize).
+
+```sh
+MODE=masa docker compose up --build                       # Compose (omit MODE for baseline)
+scripts/kind-up.sh && scripts/k8s-deploy.sh masa          # Kubernetes (or: baseline)
+```
+
 ## Quick start: Docker Compose
 
 Requires Docker with Compose v2. Images are built locally; nothing is pulled
@@ -133,8 +142,22 @@ The smoke scripts bring the stack up, then:
 
 `SMOKE_OVERLOAD=1` also runs the burst in baseline, report only. Without
 admission control the burst reaches the backends; in our runs baseline
-`Reservation` requests kept timing out (~80 %) for at least 20 s afterwards
-while `Search` recovered, so baseline is not held to the recovery check.
+`Reservation` requests kept timing out (~80 %) after the burst while `Search`
+recovered, so baseline is not held to the recovery check.
+
+The ~80 % is `probCheckUser` (80): those are the `Reservation` requests that
+pass the user check and call `make_reservation`, and they hang indefinitely
+(the other 20 % are answered by the user check in ~2 ms). Findings from
+isolating it: CPU, queues and Redis are idle during the hang; it needs the
+mixed Search + Reservation burst (Reservation-only or Search-only bursts at
+4000 rps leave no residue); restarting the reservation service or its MongoDB
+container clears it, restarting its Redis does not; it persists for minutes,
+not seconds. So it is not a backlog or client retries but wedged MongoDB
+connections inside the reservation service (`mongodb` 2.8.2) after in-flight
+operations were cancelled when clients timed out. The exact driver-level
+mechanism was not pinned down (timeboxed); a likely mitigation is to run the
+MongoDB calls of `make_reservation` in a spawned task so a dropped handler does
+not cancel them. Compose and Kubernetes configuration are not the cause.
 
 Results land in `out/smoke-<compose|k8s>-<mode>/`.
 

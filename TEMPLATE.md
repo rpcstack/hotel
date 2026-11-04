@@ -57,6 +57,17 @@ are baked in at `/etc/<app>` and overridden by a mount of `config/`.
   while their databases start; the k8s smoke only counts restarts after
   readiness.
 
+### Variant: generated topologies
+
+Applications whose process graph is generated (synthbench topologies,
+tracebench graphs) may skip `k8s/base` and overlays. A generator
+(`scripts/gen-deploy.py`, `scripts/gen-all.sh`) writes `k8s.yaml` and
+`k8s-loadgen.yaml` (plus a Compose file where needed) into `deploy/<topology>/`, with the image tag
+rewritten per mode at apply time (`scripts/lib/render-k8s.sh`). Everything else
+is unchanged: same `kind-up.sh`, `k8s-deploy.sh`, teardown scripts and smoke
+tests, and the README must state the layout and the exact one-command deploy
+for Compose and Kubernetes.
+
 ## 6. Smoke tests
 
 `scripts/smoke-compose.sh [mode]` and `scripts/smoke-k8s.sh [mode]` must:
