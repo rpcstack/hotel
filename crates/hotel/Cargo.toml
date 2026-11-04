@@ -1,0 +1,114 @@
+[package]
+name = "hotel"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "hotel_client_bench"
+path = "src/client/client_bench.rs"
+
+[[bin]]
+name = "hotel_policy_probe"
+path = "src/probe/main.rs"
+
+[[bin]]
+name = "hotel_frontend"
+path = "src/frontend/main.rs"
+
+[[bin]]
+name = "hotel_geo"
+path = "src/geo/main.rs"
+
+[[bin]]
+name = "hotel_rate"
+path = "src/rate/main.rs"
+
+[[bin]]
+name = "hotel_review"
+path = "src/review/main.rs"
+
+[[bin]]
+name = "hotel_search"
+path = "src/search/main.rs"
+
+[[bin]]
+name = "hotel_profile"
+path = "src/profile/main.rs"
+
+[[bin]]
+name = "hotel_reservation"
+path = "src/reservation/main.rs"
+
+[[bin]]
+name = "hotel_user"
+path = "src/user/main.rs"
+
+[[bin]]
+name = "hotel_recommendation"
+path = "src/recommendation/main.rs"
+
+[[bin]]
+name = "loadgen"
+path = "src/loadgen/main.rs"
+
+[features]
+# Policy modes. `baseline` (no features) leaves `masa::DefaultHooks` as
+# `tonic::rpcstack::noop::NoopHooks`. `masa` is the composed Masa policy preset
+# documented in rpcstack's examples/masa/README.md.
+default = []
+baseline = []
+masa = ["sched_slo", "abort_slo", "signal_slack", "est_mean_var", "ac_pred"]
+
+# Individual Masa features, passed through unchanged.
+sched_slo = ["masa/sched_slo"]
+sched_mt = ["masa/sched_mt"]
+sched_mt_multiqueue = ["sched_mt", "masa/sched_mt_multiqueue"]
+sched_tailclipper = ["masa/sched_tailclipper"]
+sched_fifo = ["masa/sched_fifo"]
+sched_oracle = ["masa/sched_oracle"]
+sched_pred = ["masa/sched_pred"]
+abort_slo = ["masa/abort_slo"]
+abort_slack = ["masa/abort_slack"]
+signal_slack = ["masa/signal_slack"]
+estimator = ["masa/estimator"]
+ac_pred = ["masa/ac_pred"]
+ac_rajomon = ["masa/ac_rajomon", "app-utils/ac_rajomon"]
+est_rms = ["masa/est_rms"]
+est_hist = ["masa/est_hist"]
+est_mean_var = ["masa/est_mean_var"]
+trace_queue_latency = ["masa/trace_queue_latency", "app-utils/trace_queue_latency"]
+deadline_equals_slack = ["masa/deadline_equals_slack"]
+stack_custom = ["masa/stack_custom"]
+sched_custom = ["masa/sched_custom"]
+
+# Application knobs inherited from the original benchmark.
+synthetic = []
+workload_stats = []
+
+[dependencies]
+masa = { workspace = true }
+tonic = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "net", "sync"] }
+app-utils = { path = "../app-utils" }
+anyhow = "1.0"
+chrono = "0.4.38"
+clap = { version = "4.4", features = ["derive"] }
+futures = "0.3"
+geo = "0.28"
+http = "0.2"
+kiddo = "4.2.1"
+log = "0.4"
+mongodb = "=2.8.2"
+prost = "0.12"
+rand = "0.8"
+rand_distr = "0.4"
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+structopt = "0.3.23"
+
+[build-dependencies]
+tonic-build = { workspace = true }
+protoc-bin-vendored = "3"
