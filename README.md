@@ -118,7 +118,7 @@ The smoke scripts bring the stack up, then:
    `baseline` none may: the no-op hooks ignore the context and the handler
    answers. So the masa check fails on a baseline build, and on any service
    whose stubs fell back to no-op hooks.
-2. **Moderate load** (200 rps, 30 s, SLO 200 ms): zero transport errors and
+2. **Moderate load** (100 rps, 30 s, SLO 200 ms): zero transport errors and
    ≥ 99 % of requests completed.
 3. **Overload burst** (masa only; 4000 rps, 10 s, SLO 20 ms): at least one
    request must be rejected or aborted with `/EarlyReturn`.

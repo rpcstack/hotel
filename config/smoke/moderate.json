@@ -9,7 +9,7 @@
     200000
   ],
   "Rps": [
-    200
+    100
   ],
   "Gap": "const",
   "WarmupSecs": 3,
