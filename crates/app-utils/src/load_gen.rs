@@ -678,6 +678,14 @@ where
     fn slo(&self) -> u64;
 }
 
+/// Fresh, independent random stream for one request, seeded from the master
+/// generator. Cloning the master instead would hand consecutive requests
+/// overlapping sequences (one draw apart), producing duplicate keys and
+/// correlated workloads.
+fn per_request_rng(master: &mut StdRng) -> StdRng {
+    StdRng::seed_from_u64(master.gen())
+}
+
 pub struct LoadGenerator<H, C>
 where
     H: HandlerOuter<C>,
@@ -819,7 +827,7 @@ where
 
             let client = self.client.clone();
             let ctrs = Arc::clone(&counters);
-            let rng = self.rng.clone();
+            let rng = per_request_rng(&mut self.rng);
             let trace = Instant::now() > trace_at;
 
             set.spawn(async move {
@@ -970,6 +978,22 @@ fn map_response<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn consecutive_requests_draw_different_values() {
+        let mut master = StdRng::seed_from_u64(7);
+        let mut a = per_request_rng(&mut master);
+        let mut b = per_request_rng(&mut master);
+        let xs: Vec<u64> = (0..8).map(|_| a.gen()).collect();
+        let ys: Vec<u64> = (0..8).map(|_| b.gen()).collect();
+        assert_ne!(xs, ys);
+        // No overlap: the old clone-based scheme made b's stream a shift of a's.
+        assert!(xs.iter().all(|x| !ys.contains(x)));
+        // Still deterministic for a given seed.
+        let mut master2 = StdRng::seed_from_u64(7);
+        let mut a2 = per_request_rng(&mut master2);
+        assert_eq!(xs, (0..8).map(|_| a2.gen()).collect::<Vec<u64>>());
+    }
 
     fn test_gen_config(api_weights: Option<Vec<f64>>) -> GenConfig {
         GenConfig {
