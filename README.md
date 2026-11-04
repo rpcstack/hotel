@@ -140,24 +140,36 @@ The smoke scripts bring the stack up, then:
 5. The probe runs again; no service log may contain a panic and no
    container/pod may restart during the run.
 
-`SMOKE_OVERLOAD=1` also runs the burst in baseline, report only. Without
-admission control the burst reaches the backends; in our runs baseline
-`Reservation` requests kept timing out (~80 %) after the burst while `Search`
-recovered, so baseline is not held to the recovery check.
+In `baseline` mode the same burst runs without admission control, so requests
+time out while it lasts (no transport errors allowed), and a recovery run
+(100 rps, 20 s) must then answer >= 99 % of both `Reservation` and `Search`
+requests over its last 5 s. This is the regression check for the MongoDB wedge
+described next.
 
-The ~80 % is `probCheckUser` (80): those are the `Reservation` requests that
-pass the user check and call `make_reservation`, and they hang indefinitely
-(the other 20 % are answered by the user check in ~2 ms). Findings from
-isolating it: CPU, queues and Redis are idle during the hang; it needs the
-mixed Search + Reservation burst (Reservation-only or Search-only bursts at
-4000 rps leave no residue); restarting the reservation service or its MongoDB
-container clears it, restarting its Redis does not; it persists for minutes,
-not seconds. So it is not a backlog or client retries but wedged MongoDB
-connections inside the reservation service (`mongodb` 2.8.2) after in-flight
-operations were cancelled when clients timed out. The exact driver-level
-mechanism was not pinned down (timeboxed); a likely mitigation is to run the
-MongoDB calls of `make_reservation` in a spawned task so a dropped handler does
-not cancel them. Compose and Kubernetes configuration are not the cause.
+### Known issue (fixed): reservation MongoDB wedge
+
+Before the fix, after a mixed `Search` + `Reservation` overload in baseline mode
+about 80 % of `Reservation` requests (the `probCheckUser` share that passes the
+user check and calls `make_reservation`) hung indefinitely, while `Search`
+recovered. CPU, queues, Redis and client retries were idle; restarting the
+reservation service or its MongoDB cleared it, restarting its Redis did not; it
+persisted for minutes. Reproduced on Compose: the post-overload recovery run
+answered 196 of 999 `Reservation` requests (the rest timed out).
+
+Counting entries to and exits from each await in `make_reservation` showed the
+hang is in `insert_many`: after the burst, every new `make_reservation` entered
+the insert and none ever left it, while the Redis calls kept completing and the
+MongoDB server showed no running operation. The cause is cancellation: when a
+client times out, the server drops the handler future, and the
+`mongodb` 2.8.2 operation is abandoned mid-flight and the driver's later writes
+on that client never complete (the driver-internal mechanism was not traced;
+that spawning removes the hang is what the evidence shows).
+`make_reservation` therefore now runs each MongoDB call
+(`find`, `find_one`, `insert_many`) in its own spawned task (`detached` in
+`crates/hotel/src/reservation/server.rs`), so a cancelled request only stops
+waiting for the result and never abandons a driver operation. After the fix the
+same recovery run answers 100 % of `Reservation` and `Search` requests, and the
+baseline smoke enforces this.
 
 Results land in `out/smoke-<compose|k8s>-<mode>/`.
 

@@ -117,14 +117,20 @@ if [ "$MODE" = masa ]; then
   # Masa's predictive admission (AIMD) reopens only as admitted requests
   # complete, so judge recovery on the last 5 s of a 20 s run at 100 rps.
   check "$OUT/recovery.txt" --label recovery --tail-secs 5 --min-requests 300 --min-ok-rate "$MIN_OK" --max-transport 0
-elif [ "${SMOKE_OVERLOAD:-0}" = 1 ]; then
-  # Report only: without admission control the overload reaches the backends
-  # and baseline is not expected to recover within the run (see README).
-  echo "== overload burst (baseline, report only)"
+else
+  # Baseline has no admission control: the burst reaches the backends and
+  # requests time out while it lasts. What must hold is that the stack
+  # recovers afterwards. Regression check for the reservation MongoDB wedge
+  # (see README, "Known issue"): ~80 % of Reservation requests used to hang
+  # forever after a mixed Search + Reservation overload.
+  echo "== overload burst (baseline: timeouts expected, no transport errors)"
   load overload
-  check "$OUT/overload.txt" --label overload --max-rejected 0
+  check "$OUT/overload.txt" --label overload --max-rejected 0 --max-transport 0
+
+  echo "== recovery (baseline): Reservation must recover after the overload"
   load recovery
-  check "$OUT/recovery.txt" --label recovery --tail-secs 5 || true
+  check "$OUT/recovery.txt" --label recovery-reservation --api Reservation --tail-secs 5 --min-requests 50 --min-ok-rate "$MIN_OK" --max-transport 0
+  check "$OUT/recovery.txt" --label recovery-search --api Search --tail-secs 5 --min-requests 50 --min-ok-rate "$MIN_OK" --max-transport 0
 fi
 
 echo "== probe again (policy state and control requests after the load runs)"

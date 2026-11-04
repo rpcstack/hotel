@@ -21,6 +21,24 @@ use redis::{aio::ConnectionManager as RedisConnectionManager, AsyncCommands};
 use tokio::task::JoinSet;
 use tonic::{Request, Response, Status};
 
+/// Run a MongoDB operation to completion in its own task.
+///
+/// A handler future is dropped as soon as its client times out or resets the
+/// stream. Dropping a `mongodb` 2.8.2 operation half-way through leaves the
+/// driver's connection unusable for later writes, and every subsequent
+/// `make_reservation` then hangs (see the README, "Known issue"). Spawning
+/// the call means a cancelled request only stops waiting for the result; the
+/// driver operation itself always runs to completion.
+async fn detached<T, F>(fut: F) -> Result<T, Status>
+where
+    F: std::future::Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::spawn(fut)
+        .await
+        .map_err(|e| Status::internal(format!("mongodb task failed: {e}")))
+}
+
 pub struct ReservationImpl {
     redis_conn: RedisConnectionManager,
     mongo_client: MongoClient,
@@ -356,13 +374,19 @@ impl Reservation for ReservationImpl {
                         "outDate": &out_date_str
                     };
 
-                    let mut reservations = res_collection.find(filter, None).await.unwrap();
-
-                    let mut reserve_count = 0;
-                    use futures::StreamExt;
-                    while let Some(reservation) = reservations.next().await {
-                        reserve_count += reservation.unwrap().number;
-                    }
+                    let reserve_count = detached({
+                        let res_collection = res_collection.clone();
+                        async move {
+                            use futures::StreamExt;
+                            let mut reservations = res_collection.find(filter, None).await.unwrap();
+                            let mut reserve_count = 0;
+                            while let Some(reservation) = reservations.next().await {
+                                reserve_count += reservation.unwrap().number;
+                            }
+                            reserve_count
+                        }
+                    })
+                    .await?;
                     redis_date_num_map.insert(redis_key, reserve_count + req.room_number);
                     reserve_count
                 }
@@ -374,11 +398,13 @@ impl Reservation for ReservationImpl {
                 Ok(Some(value)) => String::from_utf8_lossy(&value).parse::<i32>().unwrap(),
                 _ => {
                     let filter = doc! { "hotelId": hotel_id };
-                    let num = num_collection
-                        .find_one(filter, None)
-                        .await
-                        .unwrap()
-                        .expect(&format!("should find hotel {}", hotel_id));
+                    let num = detached({
+                        let num_collection = num_collection.clone();
+                        async move { num_collection.find_one(filter, None).await }
+                    })
+                    .await?
+                    .unwrap()
+                    .expect(&format!("should find hotel {}", hotel_id));
 
                     let cap = num.number;
                     if redis_conn
@@ -433,10 +459,12 @@ impl Reservation for ReservationImpl {
             reservations.push(reservation);
             current_date = next_date;
         }
-        res_collection
-            .insert_many(reservations, None)
-            .await
-            .unwrap();
+        detached({
+            let res_collection = res_collection.clone();
+            async move { res_collection.insert_many(reservations, None).await }
+        })
+        .await?
+        .unwrap();
         res.hotel_ids.push(hotel_id.clone());
         self.latency_tracker
             .track(start.elapsed().as_micros().try_into().unwrap());
