@@ -169,9 +169,9 @@ Every request-path MongoDB call in every service (`user`, `profile`, `rate`,
 (`mongo::detached`, `crates/hotel/src/mongo.rs`), so a cancelled request only
 stops waiting for the result and never abandons a driver operation. This
 matters beyond `reservation`: on a 4-core GitHub runner under kind the first
-version of the fix (reservation only) left the `user` service wedged the same
-way, and all `Reservation` requests, including the ones the user check answers
-by itself, timed out after the burst. After the fix the same recovery run
+version of the fix (reservation only) still failed the recovery check: every
+`Reservation` request, including the ones the user check answers by itself,
+timed out after the burst, which points at the `user` service's MongoDB client. After the fix the same recovery run
 answers 100 % of `Reservation` and `Search` requests, and the baseline smoke
 enforces this.
 
