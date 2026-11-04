@@ -14,9 +14,6 @@ ARG RUST_IMAGE=rust:1-slim-bookworm
 ARG RUNTIME_IMAGE=debian:bookworm-slim
 
 FROM ${RUST_IMAGE} AS builder
-ARG MODE=baseline
-ARG FEATURES=
-ARG BUILD_JOBS=
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates git pkg-config \
  && rm -rf /var/lib/apt/lists/*
@@ -26,6 +23,10 @@ COPY rust-toolchain.toml ./
 RUN rustup show active-toolchain || rustup toolchain install
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
+# Declared late so the toolchain layers above are shared by every mode.
+ARG MODE=baseline
+ARG FEATURES=
+ARG BUILD_JOBS=
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/target,id=hotel-target-${MODE} \
