@@ -1,6 +1,8 @@
 #[path = "../config.rs"]
 mod config;
 mod db;
+#[path = "../mongo.rs"]
+mod mongo;
 mod server;
 
 use std::fs::File;

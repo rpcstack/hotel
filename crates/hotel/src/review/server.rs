@@ -85,14 +85,23 @@ impl Review for ReviewImpl {
                 .database("review-db")
                 .collection::<db::Review>("reviews");
 
-            let mut cursor = collection
-                .find(doc! {"hotelId": &hotel_id}, None)
-                .await
-                .map_err(|e| Status::internal(format!("MongoDB error: {}", e)))?;
+            let query_id = hotel_id.clone();
+            let results = crate::mongo::detached(async move {
+                let mut cursor = collection
+                    .find(doc! {"hotelId": query_id}, None)
+                    .await
+                    .map_err(|e| Status::internal(format!("MongoDB error: {}", e)))?;
+                let mut results = Vec::new();
+                while let Some(result) = cursor.next().await {
+                    results.push(result);
+                }
+                Ok::<_, Status>(results)
+            })
+            .await??;
 
             let mut db_reviews = Vec::new();
 
-            while let Some(result) = cursor.next().await {
+            for result in results {
                 match result {
                     Ok(review) => {
                         db_reviews.push(review.clone());

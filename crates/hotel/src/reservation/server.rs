@@ -21,24 +21,6 @@ use redis::{aio::ConnectionManager as RedisConnectionManager, AsyncCommands};
 use tokio::task::JoinSet;
 use tonic::{Request, Response, Status};
 
-/// Run a MongoDB operation to completion in its own task.
-///
-/// A handler future is dropped as soon as its client times out or resets the
-/// stream. Dropping a `mongodb` 2.8.2 operation half-way through leaves the
-/// driver's connection unusable for later writes, and every subsequent
-/// `make_reservation` then hangs (see the README, "Known issue"). Spawning
-/// the call means a cancelled request only stops waiting for the result; the
-/// driver operation itself always runs to completion.
-async fn detached<T, F>(fut: F) -> Result<T, Status>
-where
-    F: std::future::Future<Output = T> + Send + 'static,
-    T: Send + 'static,
-{
-    tokio::spawn(fut)
-        .await
-        .map_err(|e| Status::internal(format!("mongodb task failed: {e}")))
-}
-
 pub struct ReservationImpl {
     redis_conn: RedisConnectionManager,
     mongo_client: MongoClient,
@@ -158,12 +140,14 @@ impl Reservation for ReservationImpl {
                 .map(|k| k.split('_').next().unwrap().to_string())
                 .collect();
 
-            let cursor = num_collection
-                .find(doc! { "hotelId": { "$in": &query_miss_keys } }, None)
-                .await
-                .map_err(|e| tonic::Status::internal(format!("mongo error: {}", e)))?;
-
-            let results = cursor.collect::<Vec<_>>().await;
+            let results = crate::mongo::detached(async move {
+                let cursor = num_collection
+                    .find(doc! { "hotelId": { "$in": &query_miss_keys } }, None)
+                    .await
+                    .map_err(|e| tonic::Status::internal(format!("mongo error: {}", e)))?;
+                Ok::<_, tonic::Status>(cursor.collect::<Vec<_>>().await)
+            })
+            .await??;
 
             for r in results {
                 if let Ok(num) = r {
@@ -265,9 +249,14 @@ impl Reservation for ReservationImpl {
                 };
 
                 let mut redis_conn = redis_conn.clone();
-                if let Ok(cursor) = collection.find(filter, None).await {
-                    let results = cursor.collect::<Vec<_>>().await;
-
+                let found = crate::mongo::detached(async move {
+                    let cursor = collection.find(filter, None).await.ok()?;
+                    Some(cursor.collect::<Vec<_>>().await)
+                })
+                .await
+                .ok()
+                .flatten();
+                if let Some(results) = found {
                     let mut count = 0;
                     for r in results {
                         if let Ok(reservation) = r {
@@ -374,7 +363,7 @@ impl Reservation for ReservationImpl {
                         "outDate": &out_date_str
                     };
 
-                    let reserve_count = detached({
+                    let reserve_count = crate::mongo::detached({
                         let res_collection = res_collection.clone();
                         async move {
                             use futures::StreamExt;
@@ -398,7 +387,7 @@ impl Reservation for ReservationImpl {
                 Ok(Some(value)) => String::from_utf8_lossy(&value).parse::<i32>().unwrap(),
                 _ => {
                     let filter = doc! { "hotelId": hotel_id };
-                    let num = detached({
+                    let num = crate::mongo::detached({
                         let num_collection = num_collection.clone();
                         async move { num_collection.find_one(filter, None).await }
                     })
@@ -459,7 +448,7 @@ impl Reservation for ReservationImpl {
             reservations.push(reservation);
             current_date = next_date;
         }
-        detached({
+        crate::mongo::detached({
             let res_collection = res_collection.clone();
             async move { res_collection.insert_many(reservations, None).await }
         })

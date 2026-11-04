@@ -164,12 +164,16 @@ client times out, the server drops the handler future, and the
 `mongodb` 2.8.2 operation is abandoned mid-flight and the driver's later writes
 on that client never complete (the driver-internal mechanism was not traced;
 that spawning removes the hang is what the evidence shows).
-`make_reservation` therefore now runs each MongoDB call
-(`find`, `find_one`, `insert_many`) in its own spawned task (`detached` in
-`crates/hotel/src/reservation/server.rs`), so a cancelled request only stops
-waiting for the result and never abandons a driver operation. After the fix the
-same recovery run answers 100 % of `Reservation` and `Search` requests, and the
-baseline smoke enforces this.
+Every request-path MongoDB call in every service (`user`, `profile`, `rate`,
+`review`, `reservation`) therefore runs in its own spawned task
+(`mongo::detached`, `crates/hotel/src/mongo.rs`), so a cancelled request only
+stops waiting for the result and never abandons a driver operation. This
+matters beyond `reservation`: on a 4-core GitHub runner under kind the first
+version of the fix (reservation only) left the `user` service wedged the same
+way, and all `Reservation` requests, including the ones the user check answers
+by itself, timed out after the burst. After the fix the same recovery run
+answers 100 % of `Reservation` and `Search` requests, and the baseline smoke
+enforces this.
 
 Results land in `out/smoke-<compose|k8s>-<mode>/`.
 
