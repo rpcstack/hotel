@@ -1,6 +1,7 @@
 name: Kubernetes smoke
 
 on:
+  pull_request:
   workflow_dispatch:
   schedule:
     - cron: "0 7 * * *"
@@ -19,7 +20,25 @@ jobs:
         run: |
           curl -fsSLo kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
           chmod +x kind && sudo mv kind /usr/local/bin/kind
+      - uses: docker/setup-buildx-action@v3
+      - name: Start kind cluster and registry
+        run: scripts/kind-up.sh
+      # Same Dockerfile, build args and cache scope as the Compose smoke in
+      # ci.yml, so dependency layers are shared between the two workflows.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: MODE=${{ matrix.mode }}
+          tags: localhost:5001/rpcstack-hotel:${{ matrix.mode }}
+          load: true
+          cache-from: type=gha,scope=hotel-${{ matrix.mode }}
+          cache-to: type=gha,scope=hotel-${{ matrix.mode }},mode=max
+      - name: Push image to the kind registry
+        run: docker push localhost:5001/rpcstack-hotel:${{ matrix.mode }}
       - name: kind smoke
+        env:
+          SKIP_BUILD: "1"
         run: scripts/smoke-k8s.sh ${{ matrix.mode }}
       - name: Upload smoke output
         if: always()
