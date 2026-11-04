@@ -141,7 +141,7 @@ The smoke scripts bring the stack up, then:
    container/pod may restart during the run.
 
 In `baseline` mode the same burst runs without admission control, so requests
-time out while it lasts (no transport errors allowed), and a recovery run
+time out (or reset) while it lasts, and a recovery run
 (100 rps, 20 s) must then answer >= 99 % of both `Reservation` and `Search`
 requests over its last 5 s. This is the regression check for the MongoDB wedge
 described next.
