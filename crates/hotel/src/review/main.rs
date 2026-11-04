@@ -9,6 +9,8 @@ use tonic::transport::Server;
 #[path = "../config.rs"]
 mod config;
 mod db;
+#[path = "../mongo.rs"]
+mod mongo;
 mod server;
 
 #[derive(StructOpt, Debug, Clone)]

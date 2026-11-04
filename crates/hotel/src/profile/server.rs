@@ -180,7 +180,15 @@ impl Profile for ProfileImpl {
 
                 let mut hotels = Vec::new();
                 // Query MongoDB
-                if let Ok(hotel) = collection.find_one(doc! { "id": &hotel_id }, None).await {
+                let found = {
+                    let collection = collection.clone();
+                    let id = hotel_id.clone();
+                    crate::mongo::detached(async move {
+                        collection.find_one(doc! { "id": id }, None).await
+                    })
+                    .await
+                };
+                if let Ok(Ok(hotel)) = found {
                     if let Some(hotel) = hotel {
                         // Update redis asynchronously
                         if let Ok(prof_json) = serde_json::to_string(&hotel) {
@@ -289,12 +297,20 @@ impl ProfileImpl {
                 .mongo_client
                 .database("profile-db")
                 .collection::<db::Hotel>("hotels");
-            let mut cursor = collection
-                .find(query, None)
-                .await
-                .expect("Failed to find hotels");
-            while let Some(hotel) = cursor.next().await {
-                let hotel = hotel.expect("Failed to get hotel");
+            let found = crate::mongo::detached(async move {
+                let mut cursor = collection
+                    .find(query, None)
+                    .await
+                    .expect("Failed to find hotels");
+                let mut found = Vec::new();
+                while let Some(hotel) = cursor.next().await {
+                    found.push(hotel.expect("Failed to get hotel"));
+                }
+                found
+            })
+            .await
+            .expect("mongodb task failed");
+            for hotel in found {
                 let hotel_json = serde_json::to_string(&hotel).expect("Failed to serialize hotel");
                 let mut redis_conn = self.redis_conn.clone();
                 if let Err(e) = redis_conn

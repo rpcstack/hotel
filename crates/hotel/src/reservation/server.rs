@@ -140,12 +140,14 @@ impl Reservation for ReservationImpl {
                 .map(|k| k.split('_').next().unwrap().to_string())
                 .collect();
 
-            let cursor = num_collection
-                .find(doc! { "hotelId": { "$in": &query_miss_keys } }, None)
-                .await
-                .map_err(|e| tonic::Status::internal(format!("mongo error: {}", e)))?;
-
-            let results = cursor.collect::<Vec<_>>().await;
+            let results = crate::mongo::detached(async move {
+                let cursor = num_collection
+                    .find(doc! { "hotelId": { "$in": &query_miss_keys } }, None)
+                    .await
+                    .map_err(|e| tonic::Status::internal(format!("mongo error: {}", e)))?;
+                Ok::<_, tonic::Status>(cursor.collect::<Vec<_>>().await)
+            })
+            .await??;
 
             for r in results {
                 if let Ok(num) = r {
@@ -247,9 +249,14 @@ impl Reservation for ReservationImpl {
                 };
 
                 let mut redis_conn = redis_conn.clone();
-                if let Ok(cursor) = collection.find(filter, None).await {
-                    let results = cursor.collect::<Vec<_>>().await;
-
+                let found = crate::mongo::detached(async move {
+                    let cursor = collection.find(filter, None).await.ok()?;
+                    Some(cursor.collect::<Vec<_>>().await)
+                })
+                .await
+                .ok()
+                .flatten();
+                if let Some(results) = found {
                     let mut count = 0;
                     for r in results {
                         if let Ok(reservation) = r {
@@ -356,13 +363,19 @@ impl Reservation for ReservationImpl {
                         "outDate": &out_date_str
                     };
 
-                    let mut reservations = res_collection.find(filter, None).await.unwrap();
-
-                    let mut reserve_count = 0;
-                    use futures::StreamExt;
-                    while let Some(reservation) = reservations.next().await {
-                        reserve_count += reservation.unwrap().number;
-                    }
+                    let reserve_count = crate::mongo::detached({
+                        let res_collection = res_collection.clone();
+                        async move {
+                            use futures::StreamExt;
+                            let mut reservations = res_collection.find(filter, None).await.unwrap();
+                            let mut reserve_count = 0;
+                            while let Some(reservation) = reservations.next().await {
+                                reserve_count += reservation.unwrap().number;
+                            }
+                            reserve_count
+                        }
+                    })
+                    .await?;
                     redis_date_num_map.insert(redis_key, reserve_count + req.room_number);
                     reserve_count
                 }
@@ -374,11 +387,13 @@ impl Reservation for ReservationImpl {
                 Ok(Some(value)) => String::from_utf8_lossy(&value).parse::<i32>().unwrap(),
                 _ => {
                     let filter = doc! { "hotelId": hotel_id };
-                    let num = num_collection
-                        .find_one(filter, None)
-                        .await
-                        .unwrap()
-                        .expect(&format!("should find hotel {}", hotel_id));
+                    let num = crate::mongo::detached({
+                        let num_collection = num_collection.clone();
+                        async move { num_collection.find_one(filter, None).await }
+                    })
+                    .await?
+                    .unwrap()
+                    .expect(&format!("should find hotel {}", hotel_id));
 
                     let cap = num.number;
                     if redis_conn
@@ -433,10 +448,12 @@ impl Reservation for ReservationImpl {
             reservations.push(reservation);
             current_date = next_date;
         }
-        res_collection
-            .insert_many(reservations, None)
-            .await
-            .unwrap();
+        crate::mongo::detached({
+            let res_collection = res_collection.clone();
+            async move { res_collection.insert_many(reservations, None).await }
+        })
+        .await?
+        .unwrap();
         res.hotel_ids.push(hotel_id.clone());
         self.latency_tracker
             .track(start.elapsed().as_micros().try_into().unwrap());

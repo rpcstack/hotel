@@ -50,6 +50,7 @@ def main():
     ap.add_argument("file")
     ap.add_argument("--label", default="run")
     ap.add_argument("--min-requests", type=int, default=1)
+    ap.add_argument("--api", help="only judge requests of this API (e.g. Reservation)")
     ap.add_argument("--tail-secs", type=float,
                     help="only judge requests started in the last N seconds of the run")
     ap.add_argument("--min-ok-rate", type=float, help="minimum fraction of ok requests")
@@ -60,6 +61,9 @@ def main():
 
     with open(args.file) as f:
         rows = parse(f)
+    if args.api:
+        rows = [r for r in rows if r["api"] == args.api]
+        print(f"[{args.label}] judging {args.api} requests only")
     if args.tail_secs is not None and rows:
         end = max(int(r["start_at"]) for r in rows)
         cutoff = end - args.tail_secs * 1e6  # start_at is in microseconds

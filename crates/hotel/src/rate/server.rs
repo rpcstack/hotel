@@ -182,14 +182,23 @@ impl Rate for RateImpl {
                     .database("rate-db")
                     .collection::<db::RatePlan>("inventory");
 
-                let mut cursor = collection
-                    .find(doc! {}, None)
-                    .await
-                    .expect("failed to find rate");
+                let found = crate::mongo::detached(async move {
+                    let mut cursor = collection
+                        .find(doc! {}, None)
+                        .await
+                        .expect("failed to find rate");
+                    let mut found = Vec::new();
+                    while let Some(Ok(rate_plan)) = cursor.next().await {
+                        found.push(rate_plan);
+                    }
+                    found
+                })
+                .await
+                .expect("mongodb task failed");
                 let mut tmp_rate_plans = Vec::new();
                 let mut memc_str = String::new();
 
-                while let Some(Ok(rate_plan)) = cursor.next().await {
+                for rate_plan in found {
                     if let Ok(rate_json) = serde_json::to_string(&rate_plan) {
                         memc_str.push_str(&rate_json);
                         memc_str.push('\n');
@@ -304,14 +313,23 @@ impl Rate for RateImpl {
                     .database("rate-db")
                     .collection::<db::RatePlan>("inventory");
 
-                let mut cursor = collection
-                    .find(doc! {}, None)
-                    .await
-                    .expect("failed to find rate");
+                let found = crate::mongo::detached(async move {
+                    let mut cursor = collection
+                        .find(doc! {}, None)
+                        .await
+                        .expect("failed to find rate");
+                    let mut found = Vec::new();
+                    while let Some(Ok(rate_plan)) = cursor.next().await {
+                        found.push(rate_plan);
+                    }
+                    found
+                })
+                .await
+                .expect("mongodb task failed");
                 let mut tmp_rate_plans = Vec::new();
                 let mut memc_str = String::new();
 
-                while let Some(Ok(rate_plan)) = cursor.next().await {
+                for rate_plan in found {
                     if let Ok(rate_json) = serde_json::to_string(&rate_plan) {
                         memc_str.push_str(&rate_json);
                         memc_str.push('\n');

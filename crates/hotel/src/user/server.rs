@@ -102,7 +102,10 @@ impl User for UserImpl {
 
         let success = {
             let query = doc! { "username": request.username };
-            let account = self.manager.collection.find_one(query, None).await;
+            let collection = self.manager.collection.clone();
+            let account =
+                crate::mongo::detached(async move { collection.find_one(query, None).await })
+                    .await?;
             if account.is_err() {
                 false
             } else {
