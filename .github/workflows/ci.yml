@@ -37,14 +37,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      # Dependencies are a separate cargo-chef layer (see Dockerfile); persist it
+      # in the Actions cache so only the hotel crates compile on a warm run.
       - name: Build image
-        env:
-          MODE: ${{ matrix.mode }}
-          COMPOSE_PROJECT_NAME: rpcstack-hotel-${{ matrix.mode }}
-        run: docker compose build frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: MODE=${{ matrix.mode }}
+          tags: rpcstack-hotel:${{ matrix.mode }}
+          load: true
+          cache-from: type=gha,scope=hotel-${{ matrix.mode }}
+          cache-to: type=gha,scope=hotel-${{ matrix.mode }},mode=max
       - name: Compose smoke
         env:
           SKIP_BUILD: "1"
+          COMPOSE_PROJECT_NAME: rpcstack-hotel-${{ matrix.mode }}
         run: scripts/smoke-compose.sh ${{ matrix.mode }}
       - name: Upload smoke output
         if: always()

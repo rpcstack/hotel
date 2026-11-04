@@ -56,7 +56,10 @@ prints per-second counters, dumps its traces between `---BEGIN TRACES---` and
 `localhost:${FRONTEND_PORT:-8660}`. Stop with `docker compose down -v`.
 
 The first build compiles the pinned nightly toolchain's dependencies and takes
-several minutes; later builds reuse BuildKit caches.
+several minutes. The Dockerfile builds dependencies in a separate
+[cargo-chef](https://github.com/LukeMathWalker/cargo-chef) layer, so later
+builds (and edits to the hotel sources) reuse it; CI persists that layer in the
+GitHub Actions cache.
 
 ## Quick start: Kubernetes (kind)
 
