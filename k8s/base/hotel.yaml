@@ -1,0 +1,351 @@
+# The nine hotel services. The container argument selects the binary.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels: {app.kubernetes.io/name: frontend, app.kubernetes.io/component: hotel}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: frontend}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: frontend, app.kubernetes.io/component: hotel}
+    spec:
+      containers:
+        - name: frontend
+          image: rpcstack-hotel
+          args: ["frontend"]
+          env: [{name: LOG_LEVEL, value: info}]
+          ports: [{name: grpc, containerPort: 8660}]
+          readinessProbe:
+            tcpSocket: {port: 8660}
+            periodSeconds: 3
+          volumeMounts: [{name: config, mountPath: /etc/hotel, readOnly: true}]
+      volumes:
+        - name: config
+          configMap: {name: hotel-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  labels: {app.kubernetes.io/name: frontend, app.kubernetes.io/component: hotel}
+spec:
+  selector: {app.kubernetes.io/name: frontend}
+  ports:
+    - name: grpc
+      port: 8660
+      targetPort: 8660
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: search
+  labels: {app.kubernetes.io/name: search, app.kubernetes.io/component: hotel}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: search}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: search, app.kubernetes.io/component: hotel}
+    spec:
+      containers:
+        - name: search
+          image: rpcstack-hotel
+          args: ["search"]
+          env: [{name: LOG_LEVEL, value: info}]
+          ports: [{name: grpc, containerPort: 8668}]
+          readinessProbe:
+            tcpSocket: {port: 8668}
+            periodSeconds: 3
+          volumeMounts: [{name: config, mountPath: /etc/hotel, readOnly: true}]
+      volumes:
+        - name: config
+          configMap: {name: hotel-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: search
+  labels: {app.kubernetes.io/name: search, app.kubernetes.io/component: hotel}
+spec:
+  selector: {app.kubernetes.io/name: search}
+  ports:
+    - name: grpc
+      port: 8668
+      targetPort: 8668
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: geo
+  labels: {app.kubernetes.io/name: geo, app.kubernetes.io/component: hotel}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: geo}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: geo, app.kubernetes.io/component: hotel}
+    spec:
+      containers:
+        - name: geo
+          image: rpcstack-hotel
+          args: ["geo"]
+          env: [{name: LOG_LEVEL, value: info}]
+          ports: [{name: grpc, containerPort: 8661}]
+          readinessProbe:
+            tcpSocket: {port: 8661}
+            periodSeconds: 3
+          volumeMounts: [{name: config, mountPath: /etc/hotel, readOnly: true}]
+      volumes:
+        - name: config
+          configMap: {name: hotel-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: geo
+  labels: {app.kubernetes.io/name: geo, app.kubernetes.io/component: hotel}
+spec:
+  selector: {app.kubernetes.io/name: geo}
+  ports:
+    - name: grpc
+      port: 8661
+      targetPort: 8661
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rate
+  labels: {app.kubernetes.io/name: rate, app.kubernetes.io/component: hotel}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: rate}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: rate, app.kubernetes.io/component: hotel}
+    spec:
+      containers:
+        - name: rate
+          image: rpcstack-hotel
+          args: ["rate"]
+          env: [{name: LOG_LEVEL, value: info}]
+          ports: [{name: grpc, containerPort: 8663}]
+          readinessProbe:
+            tcpSocket: {port: 8663}
+            periodSeconds: 3
+          volumeMounts: [{name: config, mountPath: /etc/hotel, readOnly: true}]
+      volumes:
+        - name: config
+          configMap: {name: hotel-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rate
+  labels: {app.kubernetes.io/name: rate, app.kubernetes.io/component: hotel}
+spec:
+  selector: {app.kubernetes.io/name: rate}
+  ports:
+    - name: grpc
+      port: 8663
+      targetPort: 8663
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: profile
+  labels: {app.kubernetes.io/name: profile, app.kubernetes.io/component: hotel}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: profile}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: profile, app.kubernetes.io/component: hotel}
+    spec:
+      containers:
+        - name: profile
+          image: rpcstack-hotel
+          args: ["profile"]
+          env: [{name: LOG_LEVEL, value: info}]
+          ports: [{name: grpc, containerPort: 8662}]
+          readinessProbe:
+            tcpSocket: {port: 8662}
+            periodSeconds: 3
+          volumeMounts: [{name: config, mountPath: /etc/hotel, readOnly: true}]
+      volumes:
+        - name: config
+          configMap: {name: hotel-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: profile
+  labels: {app.kubernetes.io/name: profile, app.kubernetes.io/component: hotel}
+spec:
+  selector: {app.kubernetes.io/name: profile}
+  ports:
+    - name: grpc
+      port: 8662
+      targetPort: 8662
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reservation
+  labels: {app.kubernetes.io/name: reservation, app.kubernetes.io/component: hotel}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: reservation}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: reservation, app.kubernetes.io/component: hotel}
+    spec:
+      containers:
+        - name: reservation
+          image: rpcstack-hotel
+          args: ["reservation"]
+          env: [{name: LOG_LEVEL, value: info}]
+          ports: [{name: grpc, containerPort: 8666}]
+          readinessProbe:
+            tcpSocket: {port: 8666}
+            periodSeconds: 3
+          volumeMounts: [{name: config, mountPath: /etc/hotel, readOnly: true}]
+      volumes:
+        - name: config
+          configMap: {name: hotel-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reservation
+  labels: {app.kubernetes.io/name: reservation, app.kubernetes.io/component: hotel}
+spec:
+  selector: {app.kubernetes.io/name: reservation}
+  ports:
+    - name: grpc
+      port: 8666
+      targetPort: 8666
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user
+  labels: {app.kubernetes.io/name: user, app.kubernetes.io/component: hotel}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: user}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: user, app.kubernetes.io/component: hotel}
+    spec:
+      containers:
+        - name: user
+          image: rpcstack-hotel
+          args: ["user"]
+          env: [{name: LOG_LEVEL, value: info}]
+          ports: [{name: grpc, containerPort: 8669}]
+          readinessProbe:
+            tcpSocket: {port: 8669}
+            periodSeconds: 3
+          volumeMounts: [{name: config, mountPath: /etc/hotel, readOnly: true}]
+      volumes:
+        - name: config
+          configMap: {name: hotel-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user
+  labels: {app.kubernetes.io/name: user, app.kubernetes.io/component: hotel}
+spec:
+  selector: {app.kubernetes.io/name: user}
+  ports:
+    - name: grpc
+      port: 8669
+      targetPort: 8669
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recommendation
+  labels: {app.kubernetes.io/name: recommendation, app.kubernetes.io/component: hotel}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: recommendation}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: recommendation, app.kubernetes.io/component: hotel}
+    spec:
+      containers:
+        - name: recommendation
+          image: rpcstack-hotel
+          args: ["recommendation"]
+          env: [{name: LOG_LEVEL, value: info}]
+          ports: [{name: grpc, containerPort: 8664}]
+          readinessProbe:
+            tcpSocket: {port: 8664}
+            periodSeconds: 3
+          volumeMounts: [{name: config, mountPath: /etc/hotel, readOnly: true}]
+      volumes:
+        - name: config
+          configMap: {name: hotel-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recommendation
+  labels: {app.kubernetes.io/name: recommendation, app.kubernetes.io/component: hotel}
+spec:
+  selector: {app.kubernetes.io/name: recommendation}
+  ports:
+    - name: grpc
+      port: 8664
+      targetPort: 8664
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review
+  labels: {app.kubernetes.io/name: review, app.kubernetes.io/component: hotel}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: review}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: review, app.kubernetes.io/component: hotel}
+    spec:
+      containers:
+        - name: review
+          image: rpcstack-hotel
+          args: ["review"]
+          env: [{name: LOG_LEVEL, value: info}]
+          ports: [{name: grpc, containerPort: 8667}]
+          readinessProbe:
+            tcpSocket: {port: 8667}
+            periodSeconds: 3
+          volumeMounts: [{name: config, mountPath: /etc/hotel, readOnly: true}]
+      volumes:
+        - name: config
+          configMap: {name: hotel-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: review
+  labels: {app.kubernetes.io/name: review, app.kubernetes.io/component: hotel}
+spec:
+  selector: {app.kubernetes.io/name: review}
+  ports:
+    - name: grpc
+      port: 8667
+      targetPort: 8667

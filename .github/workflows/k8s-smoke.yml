@@ -1,0 +1,32 @@
+name: Kubernetes smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * *"
+
+jobs:
+  kind-smoke:
+    name: kind smoke (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [baseline, masa]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kind
+        run: |
+          curl -fsSLo kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
+          chmod +x kind && sudo mv kind /usr/local/bin/kind
+      - name: kind smoke
+        run: scripts/smoke-k8s.sh ${{ matrix.mode }}
+      - name: Upload smoke output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-k8s-${{ matrix.mode }}
+          path: out/
+      - name: Tear down
+        if: always()
+        run: scripts/kind-down.sh

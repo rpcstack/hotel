@@ -1,0 +1,9 @@
+# Masa composed policy: same manifests, image built with MODE=masa
+# (sched_slo,abort_slo,signal_slack,est_mean_var,ac_pred).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+images:
+  - name: localhost:5001/rpcstack-hotel
+    newTag: masa

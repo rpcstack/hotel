@@ -1,0 +1,29 @@
+# Hotel on rpcstack, baseline policy (generated stubs use no-op hooks).
+#
+# The ConfigMap is generated from the repository's config/ directory, which is
+# outside this kustomization, so render with:
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone k8s/base
+# scripts/k8s-deploy.sh does this for you.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: rpcstack-hotel
+resources:
+  - namespace.yaml
+  - infra.yaml
+  - hotel.yaml
+# A fixed ConfigMap name lets the smoke Jobs mount it; k8s-deploy.sh restarts
+# the hotel Deployments so config changes are picked up.
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: hotel-config
+    files:
+      - ../../config/hotel.json
+      - ../../config/gen_config.json
+      - smoke-moderate.json=../../config/smoke/moderate.json
+      - smoke-overload.json=../../config/smoke/overload.json
+      - smoke-recovery.json=../../config/smoke/recovery.json
+images:
+  - name: rpcstack-hotel
+    newName: localhost:5001/rpcstack-hotel
+    newTag: baseline
