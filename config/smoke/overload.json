@@ -1,0 +1,23 @@
+{
+  "Repeats": 1,
+  "Apis": [
+    "Search",
+    "Reservation"
+  ],
+  "Slos": [
+    20000,
+    20000
+  ],
+  "Rps": [
+    4000
+  ],
+  "Gap": "const",
+  "WarmupSecs": 2,
+  "DurationSecs": 10,
+  "MaxInFlight": 0,
+  "Addr": "http://frontend:8660",
+  "Timeouts_ms": [
+    2000,
+    2000
+  ]
+}

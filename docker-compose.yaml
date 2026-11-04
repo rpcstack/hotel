@@ -1,0 +1,156 @@
+# Hotel on rpcstack: 9 services, their MongoDB/Redis backends and the load generator.
+#
+#   docker compose up --build                 # baseline (no policy)
+#   MODE=masa docker compose up --build       # Masa composed policy
+#
+# Every hotel service runs the same locally built image; the first container
+# argument selects the binary (see docker/entrypoint.sh). Configs are mounted
+# from ./config. Set COMPOSE_PROJECT_NAME (or -p) to run modes side by side.
+
+x-hotel: &hotel
+  image: rpcstack-hotel:${MODE:-baseline}
+  pull_policy: never
+  restart: unless-stopped
+  environment:
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+  volumes:
+    - ./config:/etc/hotel:ro
+
+x-mongo: &mongo
+  image: mongo:7.0
+  restart: unless-stopped
+  command: ["--quiet", "--wiredTigerCacheSizeGB", "0.25"]
+  healthcheck:
+    test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping: 1}).ok"]
+    interval: 2s
+    timeout: 5s
+    retries: 60
+
+x-redis: &redis
+  image: redis:7.2
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD", "redis-cli", "ping"]
+    interval: 2s
+    timeout: 5s
+    retries: 60
+
+services:
+  profile-mongo:
+    <<: *mongo
+
+  rate-mongo:
+    <<: *mongo
+
+  reservation-mongo:
+    <<: *mongo
+
+  review-mongo:
+    <<: *mongo
+
+  user-mongo:
+    <<: *mongo
+
+  profile-redis:
+    <<: *redis
+
+  rate-redis:
+    <<: *redis
+
+  reservation-redis:
+    <<: *redis
+
+  review-redis:
+    <<: *redis
+
+  geo:
+    <<: *hotel
+    command: ["geo"]
+
+  rate:
+    <<: *hotel
+    command: ["rate"]
+    depends_on:
+      rate-mongo:
+        condition: service_healthy
+      rate-redis:
+        condition: service_healthy
+
+  profile:
+    <<: *hotel
+    command: ["profile"]
+    depends_on:
+      profile-mongo:
+        condition: service_healthy
+      profile-redis:
+        condition: service_healthy
+
+  reservation:
+    <<: *hotel
+    command: ["reservation"]
+    depends_on:
+      reservation-mongo:
+        condition: service_healthy
+      reservation-redis:
+        condition: service_healthy
+
+  review:
+    <<: *hotel
+    command: ["review"]
+    depends_on:
+      review-mongo:
+        condition: service_healthy
+      review-redis:
+        condition: service_healthy
+
+  user:
+    <<: *hotel
+    command: ["user"]
+    depends_on:
+      user-mongo:
+        condition: service_healthy
+
+  recommendation:
+    <<: *hotel
+    command: ["recommendation"]
+
+  search:
+    <<: *hotel
+    command: ["search"]
+    depends_on:
+      geo:
+        condition: service_started
+      rate:
+        condition: service_started
+
+  frontend:
+    <<: *hotel
+    build:
+      context: .
+      args:
+        MODE: ${MODE:-baseline}
+        FEATURES: ${FEATURES:-}
+        BUILD_JOBS: ${BUILD_JOBS:-}
+    command: ["frontend"]
+    ports:
+      - "${FRONTEND_PORT:-8660}:8660"
+    depends_on:
+      search:
+        condition: service_started
+      reservation:
+        condition: service_started
+      profile:
+        condition: service_started
+      user:
+        condition: service_started
+
+  # Load generator: runs config/gen_config.json once against the frontend,
+  # prints per-second stats and the per-request CSV traces, then exits.
+  # Re-run with: docker compose run --rm client-bench
+  client-bench:
+    <<: *hotel
+    restart: "no"
+    command: ["client-bench"]
+    depends_on:
+      frontend:
+        condition: service_started
