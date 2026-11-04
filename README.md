@@ -28,6 +28,15 @@ The load generator (`hotel_client_bench`) sends `Search` and `Reservation`
 requests at a fixed rate, each carrying a Masa root context with its SLO, and
 writes one CSV row per request.
 
+## Deploy in one command
+
+Layout: `k8s/base` plus `k8s/overlays/<mode>` (kustomize).
+
+```sh
+MODE=masa docker compose up --build                       # Compose (omit MODE for baseline)
+scripts/kind-up.sh && scripts/k8s-deploy.sh masa          # Kubernetes (or: baseline)
+```
+
 ## Quick start: Docker Compose
 
 Requires Docker with Compose v2. Images are built locally; nothing is pulled
