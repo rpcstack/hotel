@@ -117,7 +117,9 @@ The smoke scripts bring the stack up, then:
    deadline guard in that service's server hooks before the handler runs. In
    `baseline` none may: the no-op hooks ignore the context and the handler
    answers. So the masa check fails on a baseline build, and on any service
-   whose stubs fell back to no-op hooks.
+   whose stubs fell back to no-op hooks. In `baseline` mode the smoke also
+   runs the probe with `--expect masa` as a negative control and fails unless
+   that run reports `PROBE FAIL`.
 2. **Moderate load** (100 rps, 30 s, SLO 200 ms): zero transport errors and
    ≥ 99 % of requests completed.
 3. **Overload burst** (masa only; 4000 rps, 10 s, SLO 20 ms): at least one

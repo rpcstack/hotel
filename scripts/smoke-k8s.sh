@@ -78,15 +78,24 @@ restarts() {
 
 echo "image mode: $(run_job hotel-mode mode)"
 echo "== policy-liveness probe (expect $MODE)"
-run_probe() {
-  run_job "$1" probe --expect "$MODE" --wait-secs 300 \
+run_probe() { # run_probe JOB EXPECT
+  run_job "$1" probe --expect "$2" --wait-secs 300 \
   --frontend http://frontend:8660 \
   --target search=http://search:8668 --target geo=http://geo:8661 \
   --target rate=http://rate:8663 --target profile=http://profile:8662 \
   --target reservation=http://reservation:8666 --target user=http://user:8669 \
   --target recommendation=http://recommendation:8664 --target review=http://review:8667
 }
-run_probe hotel-probe | tee "$OUT/probe.txt"
+run_probe hotel-probe "$MODE" | tee "$OUT/probe.txt"
+if [ "$MODE" = baseline ]; then
+  # Negative control: the masa expectation must fail against a baseline stack.
+  echo "== negative control: probe --expect masa must FAIL on baseline"
+  if run_probe hotel-probe-negative masa > "$OUT/probe-negative.txt" 2>&1; then
+    cat "$OUT/probe-negative.txt"; echo "FAIL: masa probe passed against baseline stack" >&2; exit 1
+  fi
+  grep -q "PROBE FAIL" "$OUT/probe-negative.txt" || { cat "$OUT/probe-negative.txt"; echo "FAIL: negative probe did not report PROBE FAIL" >&2; exit 1; }
+  echo "negative control ok: $(grep -c 'expected /EarlyReturn' "$OUT/probe-negative.txt") services answered without Masa hooks"
+fi
 # Pods may restart while their databases come up; only restarts during the
 # smoke itself count.
 restarts > "$OUT/restarts.before"
@@ -119,7 +128,7 @@ elif [ "${SMOKE_OVERLOAD:-0}" = 1 ]; then
 fi
 
 echo "== probe again (policy state and control requests after the load runs)"
-run_probe hotel-probe-after | tee "$OUT/probe-after-overload.txt"
+run_probe hotel-probe-after "$MODE" | tee "$OUT/probe-after-overload.txt"
 
 echo "== crash check"
 kc -n "$NS" logs -l app.kubernetes.io/component=hotel --all-containers --tail=-1 --prefix > "$OUT/pods.log"

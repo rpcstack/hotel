@@ -64,7 +64,10 @@ check readiness, run moderate load with zero transport errors and a stated
 success threshold, and prove the policy is live with a check that **fails in
 baseline**. Hotel's probe sends each service a request whose Masa deadline has
 already expired and requires `/EarlyReturn?src=<that service>` in masa mode
-and none in baseline. Add an overload burst (masa must reject some requests)
+and none in baseline. In baseline mode the smoke also runs the probe with
+`--expect masa` as a **negative control that must fail** (it exits non-zero
+with `PROBE FAIL`), so a probe that cannot distinguish the modes breaks the
+smoke. Add an overload burst (masa must reject some requests)
 and a recovery run, and fail on panics or restarts. `scripts/lib/check_traces.py`
 classifies load-generator traces and is reusable as is.
 

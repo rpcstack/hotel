@@ -21,8 +21,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install pinned toolchain
         run: rustup show active-toolchain || rustup toolchain install
-      - name: Add rustfmt
-        run: rustup component add rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Check (fmt, rpcstack pin, single tokio/hyper, -D warnings, both modes)
         run: scripts/check.sh

@@ -50,8 +50,9 @@ echo "== up"
 dc up -d --scale client-bench=0
 echo "image mode: $(dc run --rm --no-deps client-bench mode)"
 
-probe() {
-  dc run --rm --no-deps client-bench probe --expect "$MODE" --wait-secs 300 \
+probe() { # probe EXPECT [ARGS...]
+  local expect="$1"; shift
+  dc run --rm --no-deps client-bench probe --expect "$expect" --wait-secs 300 \
     --frontend http://frontend:8660 \
     --target search=http://search:8668 --target geo=http://geo:8661 \
     --target rate=http://rate:8663 --target profile=http://profile:8662 \
@@ -60,7 +61,17 @@ probe() {
 }
 
 echo "== policy-liveness probe (expect $MODE)"
-probe | tee "$OUT/probe.txt"
+probe "$MODE" | tee "$OUT/probe.txt"
+if [ "$MODE" = baseline ]; then
+  # Negative control: the masa expectation must fail against a baseline stack,
+  # otherwise the probe cannot tell the two modes apart.
+  echo "== negative control: probe --expect masa must FAIL on baseline"
+  if probe masa > "$OUT/probe-negative.txt" 2>&1; then
+    cat "$OUT/probe-negative.txt"; echo "FAIL: masa probe passed against baseline stack" >&2; exit 1
+  fi
+  grep -q "PROBE FAIL" "$OUT/probe-negative.txt" || { cat "$OUT/probe-negative.txt"; echo "FAIL: negative probe did not report PROBE FAIL" >&2; exit 1; }
+  echo "negative control ok: $(grep -c 'expected /EarlyReturn' "$OUT/probe-negative.txt") services answered without Masa hooks"
+fi
 
 load() { # name -> runs config/smoke/<name>.json, traces in $OUT/<name>.txt
   dc run --rm --no-deps -e HOTEL_GEN_CONFIG="/etc/hotel/smoke/$1.json" client-bench client-bench \
@@ -97,7 +108,7 @@ elif [ "${SMOKE_OVERLOAD:-0}" = 1 ]; then
 fi
 
 echo "== probe again (policy state and control requests after the load runs)"
-probe | tee "$OUT/probe-after-overload.txt"
+probe "$MODE" | tee "$OUT/probe-after-overload.txt"
 
 echo "== crash check"
 dc logs --no-color > "$OUT/compose.log" 2>&1
