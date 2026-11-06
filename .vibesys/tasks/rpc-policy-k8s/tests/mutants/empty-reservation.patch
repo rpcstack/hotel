@@ -1,0 +1,96 @@
+diff -ruN a/policy/src/lib.rs b/policy/src/lib.rs
+--- a/policy/src/lib.rs
++++ b/policy/src/lib.rs
+@@ -7,6 +7,9 @@
+ //! - [`stack`] (`stack.rs`): the policy-module stack and the [`Hooks`] type
+ //!   every generated gRPC stub uses (`default_hooks_path("hotel_policy::Hooks")`).
+ 
++#![allow(incomplete_features)]
++#![feature(specialization)]
++
+ // The queue source is shared with rpcstack-sched, whose crate root exports
+ // these; re-exporting them here makes the same file compile in both crates.
+ pub use rpcstack_sched::{default_policy, Meta, PollOutcome, RunQueue, SchedFlavor, TaskView};
+@@ -14,5 +17,6 @@
+ #[path = "../queue/queue.rs"]
+ pub mod queue;
+ pub mod stack;
++pub mod shed_empty;
+ 
+ pub use stack::{Hooks, Stack};
+diff -ruN a/policy/src/shed_empty.rs b/policy/src/shed_empty.rs
+--- a/policy/src/shed_empty.rs
++++ b/policy/src/shed_empty.rs
+@@ -0,0 +1,60 @@
++//! MUTANT for the task's accuracy check (tests/mutants), not a policy to keep: a "load shedder"
++//! at the reservation service that answers one MakeReservation in four with an empty OK before
++//! the handler runs, instead of failing it (so the error rate stays 0). The frontend reads the
++//! empty answer as "Failed. Already reserved." although the night has rooms left.
++
++use std::sync::atomic::{AtomicU64, Ordering};
++
++use rpcstack::{Extensions, MissingDependency, Module, ModuleServer, ServerInit, WireIn};
++use tonic::{CowGrpcMethod, Response, Status};
++
++/// The empty answer (every prost message is Default).
++trait Empty: Sized {
++    fn empty() -> Option<Self>;
++}
++impl<T> Empty for T {
++    default fn empty() -> Option<Self> {
++        None
++    }
++}
++impl<T: Default> Empty for T {
++    fn empty() -> Option<Self> {
++        Some(T::default())
++    }
++}
++
++static RESERVATIONS: AtomicU64 = AtomicU64::new(0);
++
++#[derive(Debug)]
++pub struct ShedEmptyServer;
++
++impl ModuleServer for ShedEmptyServer {
++    fn new(_init: &mut ServerInit) -> Result<Self, MissingDependency> {
++        Ok(Self)
++    }
++}
++
++#[derive(Debug)]
++pub struct ShedEmpty {
++    shed: bool,
++}
++
++impl Module for ShedEmpty {
++    type Server = ShedEmptyServer;
++    const NAME: &'static str = "shed_empty";
++    type Wire = ();
++
++    fn new(method: &CowGrpcMethod, _server: &ShedEmptyServer, _wire: &WireIn<'_>, _ext: &mut Extensions) -> Self {
++        let shed = method.method() == "MakeReservation" && RESERVATIONS.fetch_add(1, Ordering::Relaxed) % 4 == 3;
++        Self { shed }
++    }
++
++    fn before_poll<Ret>(&self, _ext: &mut Extensions) -> Result<(), Result<Response<Ret>, Status>> {
++        if self.shed {
++            if let Some(empty) = <Ret as Empty>::empty() {
++                return Err(Ok(Response::new(empty)));
++            }
++        }
++        Ok(())
++    }
++}
+diff -ruN a/policy/src/stack.rs b/policy/src/stack.rs
+--- a/policy/src/stack.rs
++++ b/policy/src/stack.rs
+@@ -17,7 +17,7 @@
+ use rpcstack::policy_stack;
+ 
+ /// The module stack: empty.
+-pub type Stack = policy_stack![];
++pub type Stack = policy_stack![crate::shed_empty::ShedEmpty];
+ 
+ /// The hooks every generated client and server stub runs.
+ pub type Hooks = rpcstack_tonic::PolicyHooks<Stack>;

@@ -1,0 +1,8 @@
+# The binaries the image builds into /task: when vibesys-evaluator rebuilds this image in the
+# cluster from /task, they are in the context and must not be copied over the fresh ones. The
+# mutants are for checking the task, not part of it.
+/rpc-policy-k8s
+/oracle
+/scope
+/explore
+/tests

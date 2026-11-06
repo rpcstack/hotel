@@ -1,0 +1,35 @@
+name: vibesys task
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: vibesys-task-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  task:
+    name: rpc-policy-k8s (Go tests, manifest, edit scope)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .vibesys/tasks/rpc-policy-k8s
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .vibesys/tasks/rpc-policy-k8s/evaluator/go.mod
+          cache-dependency-path: .vibesys/tasks/rpc-policy-k8s/evaluator/go.sum
+      - name: Go tests
+        working-directory: .vibesys/tasks/rpc-policy-k8s/evaluator
+        run: go vet ./... && go test ./...
+      # The task deploys k8s/hotel.yaml and pins the files outside policy/ in scope.json: both must
+      # follow the application (README.md, "Pinning and maintenance").
+      - name: The manifest is rendered from k8s/base
+        run: k8s/render.sh --check
+      - name: scope.json matches the application
+        working-directory: .vibesys/tasks/rpc-policy-k8s/evaluator
+        run: go run ./cmd/scope check --project-root ../../../.. --manifest ../scope.json
