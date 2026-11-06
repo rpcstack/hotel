@@ -7,6 +7,11 @@ service Frontend {
   rpc HandleSearch(SearchRequest) returns (SearchResponse) {}
   rpc HandleReservation(ReservationRequest) returns (ReservationResponse) {}
   rpc HandleReview(ReviewRequest) returns (ReviewResponse) {}
+  // Added for the HTTP frontend (src/frontend/http.rs); the load generator
+  // (client_bench) does not use them.
+  rpc HandleUser(UserRequest) returns (UserResponse) {}
+  rpc HandleRecommendation(RecommendationRequest) returns (RecommendationResponse) {}
+  rpc HandleRates(RatesRequest) returns (RatesResponse) {}
 }
 
 message PingRequest { string message = 1; }
@@ -68,6 +73,9 @@ message ReservationResponse {
   // Populated only when the binary is built with trace_queue_latency.
   uint64 userQueueingLatency = 2;
   uint64 reservationQueueingLatency = 3;
+  // False when the user check failed (then no reservation was attempted and
+  // `hotels` is empty); true when it passed, whatever the reservation's outcome.
+  bool userCorrect = 4;
 }
 
 message ReviewRequest {
@@ -90,4 +98,42 @@ message ReviewComm {
 message Image {
   string url = 1;
   bool default = 2;
+}
+
+message UserRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message UserResponse { bool correct = 1; }
+
+message RecommendationRequest {
+  // "dis", "rate" or "price".
+  string require = 1;
+  double lat = 2;
+  double lon = 3;
+  optional string locale = 4;
+}
+
+message RecommendationResponse { repeated Hotel hotels = 1; }
+
+message RatesRequest { string hotelId = 1; }
+
+message RatesResponse {
+  repeated RatePlan ratePlans = 1;
+}
+
+message RatePlan {
+  string code = 1;
+  string inDate = 2;
+  string outDate = 3;
+  RoomType roomType = 4;
+}
+
+message RoomType {
+  string code = 1;
+  string roomDescription = 2;
+  double bookableRate = 3;
+  double totalRate = 4;
+  double totalRateInclusive = 5;
 }

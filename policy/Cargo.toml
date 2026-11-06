@@ -1,0 +1,21 @@
+[package]
+name = "hotel-policy"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "The hotel app's RPC policy: run-queue scheduler and policy-module stack. The only directory an optimization agent edits."
+
+[dependencies]
+# The masa features below pick the Masa building blocks (module availability,
+# priorities, the sched_custom run-queue selection). The `policy` mode of the
+# hotel crate depends on this crate, so this list is the mode's feature set.
+masa = { workspace = true, features = [
+  "sched_slo", "abort_slo", "signal_slack", "est_mean_var", "ac_pred",
+  "sched_custom",
+] }
+masa-policy = { workspace = true }
+rpcstack-sched = { workspace = true }
+
+[dev-dependencies]
+tonic = { workspace = true }

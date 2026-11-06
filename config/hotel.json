@@ -7,7 +7,15 @@
   "frontend": {
     "ip": "frontend",
     "port": 8660,
-    "replicas": 1
+    "replicas": 1,
+    "httpPort": 5000,
+    "sloMs": {
+      "search": 200,
+      "reservation": 200,
+      "recommendation": 200,
+      "user": 200,
+      "rates": 200
+    }
   },
   "geo": {
     "ip": "geo",

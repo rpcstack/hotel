@@ -2,21 +2,26 @@
 # End-to-end smoke test of the Kubernetes deployment (same checks as
 # scripts/smoke-compose.sh, run as Jobs inside the cluster).
 #
-#   scripts/smoke-k8s.sh [baseline|masa]
+#   scripts/smoke-k8s.sh [baseline|masa|policy]
 #
 # Creates the kind cluster + registry if needed (scripts/kind-up.sh), deploys
 # MODE (scripts/k8s-deploy.sh), then runs the policy-liveness probe, moderate
 # load, an overload burst and a recovery run. Environment: KIND_CLUSTER,
-# REGISTRY_PORT, SKIP_DEPLOY=1, KEEP_UP=1 (otherwise the namespace is deleted;
-# the cluster is kept, remove it with scripts/kind-down.sh).
+# REGISTRY_PORT, HOTEL_NAMESPACE, HOTEL_IMAGE_NAME, BUILDKIT_ADDR (see k8s-deploy.sh), SKIP_DEPLOY=1,
+# SKIP_KIND_UP=1 (use an existing cluster; do not run kind-up.sh), KEEP_UP=1
+# (otherwise the namespace is deleted; the cluster is kept, remove it with
+# scripts/kind-down.sh).
 set -euo pipefail
 MODE="${1:-baseline}"
-case "$MODE" in baseline|masa) ;; *) echo "usage: $0 [baseline|masa]" >&2; exit 2 ;; esac
+case "$MODE" in baseline|masa|policy) ;; *) echo "usage: $0 [baseline|masa|policy]" >&2; exit 2 ;; esac
+# `policy` is checked as `masa`: the policy/ directory starts out equal to it,
+# and any policy must keep rejecting expired deadlines (policy/README.md).
+KIND="$MODE"; [ "$MODE" = policy ] && KIND=masa
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLUSTER="${KIND_CLUSTER:-rpcstack-hotel}"
 REGISTRY="${REGISTRY:-localhost:${REGISTRY_PORT:-5001}}"
-IMAGE="$REGISTRY/rpcstack-hotel:$MODE"
-NS=rpcstack-hotel
+IMAGE="$REGISTRY/${HOTEL_IMAGE_NAME:-rpcstack-hotel}:$MODE"
+NS="${HOTEL_NAMESPACE:-rpcstack-hotel}"
 MIN_OK="${SMOKE_MIN_OK_RATE:-0.99}"
 OUT="${SMOKE_OUT:-$ROOT/out/smoke-k8s-$MODE}"
 mkdir -p "$OUT"
@@ -31,7 +36,7 @@ cleanup() {
 }
 
 if [ "${SKIP_DEPLOY:-0}" != 1 ]; then
-  "$ROOT/scripts/kind-up.sh"
+  [ "${SKIP_KIND_UP:-0}" = 1 ] || "$ROOT/scripts/kind-up.sh"
   "$ROOT/scripts/k8s-deploy.sh" "$MODE"
 fi
 trap cleanup EXIT
@@ -77,7 +82,7 @@ restarts() {
 }
 
 echo "image mode: $(run_job hotel-mode mode)"
-echo "== policy-liveness probe (expect $MODE)"
+echo "== policy-liveness probe (expect $KIND)"
 run_probe() { # run_probe JOB EXPECT
   run_job "$1" probe --expect "$2" --wait-secs 300 \
   --frontend http://frontend:8660 \
@@ -86,7 +91,7 @@ run_probe() { # run_probe JOB EXPECT
   --target reservation=http://reservation:8666 --target user=http://user:8669 \
   --target recommendation=http://recommendation:8664 --target review=http://review:8667
 }
-run_probe hotel-probe "$MODE" | tee "$OUT/probe.txt"
+run_probe hotel-probe "$KIND" | tee "$OUT/probe.txt"
 if [ "$MODE" = baseline ]; then
   # Negative control: the masa expectation must fail against a baseline stack.
   echo "== negative control: probe --expect masa must FAIL on baseline"
@@ -96,6 +101,9 @@ if [ "$MODE" = baseline ]; then
   grep -q "PROBE FAIL" "$OUT/probe-negative.txt" || { cat "$OUT/probe-negative.txt"; echo "FAIL: negative probe did not report PROBE FAIL" >&2; exit 1; }
   echo "negative control ok: $(grep -c 'expected /EarlyReturn' "$OUT/probe-negative.txt") services answered without Masa hooks"
 fi
+echo "== HTTP API check"
+run_job hotel-http-check http-check --http http://frontend:5000 --wait-secs 300 | tee "$OUT/http-check.txt"
+grep -q "HTTP CHECK PASS" "$OUT/http-check.txt"
 # Pods may restart while their databases come up; only restarts during the
 # smoke itself count.
 restarts > "$OUT/restarts.before"
@@ -104,10 +112,10 @@ load() { GEN_CONFIG="/etc/hotel/smoke-$1.json" run_job "hotel-load-$1" client-be
 
 echo "== moderate load"
 load moderate
-extra=(--max-rejected 0); [ "$MODE" = masa ] && extra=()
+extra=(--max-rejected 0); [ "$KIND" = masa ] && extra=()
 check "$OUT/moderate.txt" --label moderate --min-requests 1000 --min-ok-rate "$MIN_OK" --max-transport 0 "${extra[@]}"
 
-if [ "$MODE" = masa ]; then
+if [ "$KIND" = masa ]; then
   echo "== overload burst"
   load overload
   check "$OUT/overload.txt" --label overload --min-rejected 1
@@ -134,7 +142,7 @@ else
 fi
 
 echo "== probe again (policy state and control requests after the load runs)"
-run_probe hotel-probe-after "$MODE" | tee "$OUT/probe-after-overload.txt"
+run_probe hotel-probe-after "$KIND" | tee "$OUT/probe-after-overload.txt"
 
 echo "== crash check"
 kc -n "$NS" logs -l app.kubernetes.io/component=hotel --all-containers --tail=-1 --prefix > "$OUT/pods.log"

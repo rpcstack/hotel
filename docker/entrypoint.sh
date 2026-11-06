@@ -6,6 +6,7 @@
 #                             -> hotel_<service> --config $HOTEL_CONFIG
 #   client-bench [args...]    load generator driven by $HOTEL_GEN_CONFIG
 #   probe [args...]           policy-liveness probe (see hotel_policy_probe)
+#   http-check [args...]      HTTP API smoke check (see hotel_http_check)
 #   loadgen [args...]         simple fixed-rate load generator
 #   mode                      print the policy mode baked into this image
 set -eu
@@ -37,6 +38,9 @@ case "$svc" in
   probe)
     exec /usr/local/bin/hotel_policy_probe "$@"
     ;;
+  http-check)
+    exec /usr/local/bin/hotel_http_check "$@"
+    ;;
   loadgen)
     exec /usr/local/bin/loadgen "$@"
     ;;
@@ -44,7 +48,7 @@ case "$svc" in
     cat /etc/hotel-mode
     ;;
   *)
-    echo "usage: hotel-entrypoint <service>|client-bench|probe|loadgen|mode [args...]" >&2
+    echo "usage: hotel-entrypoint <service>|client-bench|probe|http-check|loadgen|mode [args...]" >&2
     exit 2
     ;;
 esac

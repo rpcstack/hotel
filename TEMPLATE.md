@@ -25,12 +25,21 @@ must set `.default_hooks_path("masa::DefaultHooks")` (or your stack's hooks),
 otherwise that service silently runs without the policy. Generate all protos
 through one helper in `build.rs` (see `crates/hotel/build.rs`) and keep a test
 like `crates/hotel/tests/hooks.rs`: it checks every client type and every
-generated source's defaults, and that `masa::DefaultHooks` is not `NoopHooks`
-when the policy feature is on.
+generated source's defaults, and that the mode's hooks are not `NoopHooks` when
+a policy feature is on. `build.rs` also asserts that each generated stub names
+the expected hooks twice and never `NoopHooks`, so a stub cannot silently fall
+back to no-op hooks.
+
+An optimization-agent variant keeps the policy in one crate: hotel's `policy/`
+defines `Hooks = PolicyHooks<Stack>` and a run queue (`sched_custom` +
+`RPCSTACK_QUEUE_SOURCE`, set in `.cargo/config.toml`); `build.rs` points
+`default_hooks_path` at `hotel_policy::Hooks` in `--features policy` builds.
+Build modes one at a time with explicit packages, not `--workspace`: the policy
+crate enables Masa features that would otherwise unify into a baseline build.
 
 ## 3. Modes as Cargo features
 
-`baseline = []` and `masa = [<preset>]` on the application crate, plus the
+`baseline = []`, `masa = [<preset>]` (and optionally `policy = ["dep:<app>-policy"]`) on the application crate, plus the
 individual Masa features passed through. The mode flows Cargo feature →
 Docker build arg `MODE` (or `FEATURES`) → Compose `MODE` env / k8s overlay.
 

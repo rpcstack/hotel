@@ -1116,24 +1116,39 @@ dependencies = [
  "app-utils",
  "chrono",
  "clap 4.6.7",
+ "form_urlencoded",
  "futures",
  "geo",
+ "hotel-policy",
  "http",
+ "hyper",
  "kiddo",
  "log",
  "masa",
+ "masa-policy",
  "mongodb",
  "prost",
  "protoc-bin-vendored",
  "rand 0.8.8",
  "rand_distr",
  "redis",
+ "rpcstack-sched",
  "serde",
  "serde_json",
  "structopt",
  "tokio",
  "tonic",
  "tonic-build",
+]
+
+[[package]]
+name = "hotel-policy"
+version = "0.1.0"
+dependencies = [
+ "masa",
+ "masa-policy",
+ "rpcstack-sched",
+ "tonic",
 ]
 
 [[package]]

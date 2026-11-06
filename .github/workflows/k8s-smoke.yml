@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [baseline, masa]
+        mode: [baseline, masa, policy]
     steps:
       - uses: actions/checkout@v4
       - name: Install kind

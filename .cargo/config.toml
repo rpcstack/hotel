@@ -1,0 +1,7 @@
+# Points rpcstack-sched at the application-owned run queue (policy/queue/queue.rs).
+# It only takes effect for builds that enable `sched_custom` (the `policy` mode);
+# baseline and masa builds ignore it. Cargo resolves the path against this
+# directory's parent, so it is absolute for the build script, which requires that.
+# `force` is off: a RPCSTACK_QUEUE_SOURCE already in the environment wins.
+[env]
+RPCSTACK_QUEUE_SOURCE = { value = "policy/queue/queue.rs", relative = true }

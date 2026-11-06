@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/hotel", "crates/app-utils"]
+members = ["crates/hotel", "crates/app-utils", "policy"]
 
 # rpcstack is pinned to ONE git revision. Cargo does not let `[patch]` entries
 # inherit from `[workspace.dependencies]`, so the same rev also appears in the
@@ -9,6 +9,8 @@ members = ["crates/hotel", "crates/app-utils"]
 masa = { git = "https://github.com/rpcstack/rpcstack", rev = "de0cedc080882469b316c8125b7ad17a7c93e7fb" }
 tonic = { git = "https://github.com/rpcstack/rpcstack", rev = "de0cedc080882469b316c8125b7ad17a7c93e7fb" }
 tonic-build = { git = "https://github.com/rpcstack/rpcstack", rev = "de0cedc080882469b316c8125b7ad17a7c93e7fb", features = ["prost"] }
+masa-policy = { git = "https://github.com/rpcstack/rpcstack", rev = "de0cedc080882469b316c8125b7ad17a7c93e7fb" }
+rpcstack-sched = { git = "https://github.com/rpcstack/rpcstack", rev = "de0cedc080882469b316c8125b7ad17a7c93e7fb" }
 tokio = { git = "https://github.com/rpcstack/rpcstack", rev = "de0cedc080882469b316c8125b7ad17a7c93e7fb" }
 
 # Crates.io dependants (mongodb, redis, ...) must link the same vendored Tokio

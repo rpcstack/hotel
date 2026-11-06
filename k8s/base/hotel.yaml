@@ -17,9 +17,9 @@ spec:
           image: rpcstack-hotel
           args: ["frontend"]
           env: [{name: LOG_LEVEL, value: info}]
-          ports: [{name: grpc, containerPort: 8660}]
+          ports: [{name: grpc, containerPort: 8660}, {name: http, containerPort: 5000}]
           readinessProbe:
-            tcpSocket: {port: 8660}
+            tcpSocket: {port: 5000}
             periodSeconds: 3
           volumeMounts: [{name: config, mountPath: /etc/hotel, readOnly: true}]
       volumes:
@@ -37,6 +37,9 @@ spec:
     - name: grpc
       port: 8660
       targetPort: 8660
+    - name: http
+      port: 5000
+      targetPort: 5000
 ---
 apiVersion: apps/v1
 kind: Deployment
