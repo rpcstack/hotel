@@ -234,14 +234,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "GET /user",
         call(
             Method::GET,
-            &format!("{base}/user?username=Username_1&password=Password_1"),
+            &format!("{base}/user?username=Username_1&password=1111111111"),
         )
         .await,
         200,
-        &any_msg(&[
-            "Login successfully!",
-            "Failed. Please check your username and password. ",
-        ]),
+        &any_msg(&["Login successfully!"]),
+    );
+    expect(
+        "GET /user (wrong password)",
+        call(
+            Method::GET,
+            &format!("{base}/user?username=Username_1&password=wrong"),
+        )
+        .await,
+        200,
+        &any_msg(&["Failed. Please check your username and password. "]),
     );
     expect(
         "GET /user (no password)",
@@ -251,17 +258,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let reserve = format!(
         "{base}/reservation?inDate=2015-04-09&outDate=2015-04-10&hotelId=1&customerName=smoke\
-         &username=Username_1&password=Password_1&number=1"
+         &username=Username_1&password=1111111111&number=1"
     );
     expect(
         "GET /reservation",
         call(Method::GET, &reserve).await,
         200,
-        &any_msg(&[
-            "Reserve successfully!",
-            "Failed. Already reserved. ",
-            "Failed. Please check your username and password. ",
-        ]),
+        &any_msg(&["Reserve successfully!", "Failed. Already reserved. "]),
     );
     expect(
         "GET /reservation (bad date)",

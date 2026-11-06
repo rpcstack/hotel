@@ -4,10 +4,7 @@ pub mod hotel {
     }
 }
 
-use rand::{rngs::StdRng, SeedableRng};
-use rand_distr::{Distribution, Uniform};
 use std::error::Error;
-use std::sync::{Arc, Mutex};
 
 use mongodb::{bson::doc, Client, Collection, Database, IndexModel};
 use serde::{Deserialize, Serialize};
@@ -25,34 +22,21 @@ pub struct Account {
 
 #[derive(Clone)]
 pub struct HotelManager {
-    rng: Arc<Mutex<StdRng>>,
-    uniform_check_user: Uniform<u32>,
     users: u32,
     _database: Database,
     collection: Collection<Account>,
-    prob_check_user: u32,
 }
 
 impl HotelManager {
-    pub async fn new(
-        users: u32,
-        db_addr: String,
-        prob_check_user: u32,
-    ) -> Result<Self, Box<dyn Error>> {
-        let seed = 998244353;
-        let rng = Arc::new(Mutex::new(StdRng::seed_from_u64(seed)));
-        let uniform_check_user = Uniform::new(0, 100);
+    pub async fn new(users: u32, db_addr: String) -> Result<Self, Box<dyn Error>> {
         let client = Client::with_uri_str(db_addr).await?;
         let database = client.database("sheraton");
         let collection = database.collection::<Account>("collection");
         collection.delete_many(doc! {}, None).await?;
         let manager = HotelManager {
-            rng,
-            uniform_check_user,
             users,
             _database: database,
             collection,
-            prob_check_user,
         };
         log::warn!("Populating Mongodb...");
         manager.populate_mongodb().await?;
@@ -65,7 +49,8 @@ impl HotelManager {
         for i in 0..self.users {
             users.push(Account {
                 username: format!("Username_{}", i),
-                password: format!("Password_{}", i),
+                // As in DeathStarBench: the index repeated ten times.
+                password: i.to_string().repeat(10),
             });
         }
         self.collection.insert_many(users, None).await?;
@@ -81,12 +66,7 @@ pub struct UserImpl {
 
 impl UserImpl {
     pub async fn new(config: UserConfig) -> Result<Self, Box<dyn Error>> {
-        let manager = HotelManager::new(
-            config.users,
-            config.mongodb_addr.clone(),
-            config.prob_check_user,
-        )
-        .await?;
+        let manager = HotelManager::new(config.users, config.mongodb_addr.clone()).await?;
         let user = UserImpl { manager };
         Ok(user)
     }
@@ -101,17 +81,13 @@ impl User for UserImpl {
         let request = request.into_inner();
 
         let success = {
-            let query = doc! { "username": request.username };
+            let query = doc! { "username": request.username.clone() };
             let collection = self.manager.collection.clone();
             let account =
                 crate::mongo::detached(async move { collection.find_one(query, None).await })
                     .await?;
-            if account.is_err() {
-                false
-            } else {
-                let mut rng = self.manager.rng.lock().unwrap();
-                self.manager.uniform_check_user.sample(&mut *rng) < self.manager.prob_check_user
-            }
+            // Valid credentials always succeed, anything else always fails.
+            matches!(account, Ok(Some(a)) if a.password == request.password)
         };
 
         let response = user::UserResponse { success };

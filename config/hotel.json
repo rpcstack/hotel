@@ -65,7 +65,6 @@
     "port": 8669,
     "replicas": 1,
     "users": 1000,
-    "probCheckUser": 80,
     "mongodbAddr": "mongodb://user-mongo:27017"
   }
 }

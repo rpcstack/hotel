@@ -49,7 +49,6 @@ pub struct UserServiceConfig {
     pub endpoint: BasicServiceConfig,
     pub mongodb_addr: String,
     pub users: u32,
-    pub prob_check_user: u32,
 }
 
 impl Deref for UserServiceConfig {

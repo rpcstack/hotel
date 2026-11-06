@@ -67,9 +67,10 @@ port's, not the vibesys-modified Go ones):
   the Rust services have no write RPCs (no rate/profile/capacity update, no
   hotel addition). `/review`, `/restaurants`, `/museums` and `/cinema` answer
   501 too (the review API is a frontend stub; there is no attractions service).
-* **`/user` is not a password check.** The user service looks the username up
-  and reports success with probability `probCheckUser` (80 %); the password is
-  ignored. `Username_i` / `Password_i` are seeded for `i < users`.
+* **Login is deterministic.** The user service succeeds exactly when the
+  username exists and the password matches; there is no random failure. As in
+  DSB, `Username_i` is seeded with the password `i` repeated ten times
+  (`Username_1` / `1111111111`) for `i < users`.
 * **`/reservation`** runs the user check first and, unlike Go (which reserves
   regardless and only words the message differently), skips the reservation
   when it fails. A missing or zero `number` books one room (Go: zero rooms).
@@ -238,8 +239,8 @@ smoke scripts (`--max-rejected 0` and the recovery check assume nothing is shed)
 ### Known issue (fixed): reservation MongoDB wedge
 
 Before the fix, after a mixed `Search` + `Reservation` overload in baseline mode
-about 80 % of `Reservation` requests (the `probCheckUser` share that passes the
-user check and calls `make_reservation`) hung indefinitely, while `Search`
+about 80 % of `Reservation` requests (those that passed the user check at the
+time and called `make_reservation`) hung indefinitely, while `Search`
 recovered. CPU, queues, Redis and client retries were idle; restarting the
 reservation service or its MongoDB cleared it, restarting its Redis did not; it
 persisted for minutes. Reproduced on Compose: the post-overload recovery run

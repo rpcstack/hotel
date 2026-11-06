@@ -131,7 +131,7 @@ async fn probe(
             let mut c = user::user_client::UserClient::new(ch);
             let req = user::UserRequest {
                 username: "Username_1".into(),
-                password: "Password_1".into(),
+                password: "1111111111".into(),
             };
             c.check_user(live("Reservation", req)).await.map(|_| ())
         }
