@@ -6,8 +6,7 @@
 #
 # It needs docker, the task image (docker build -t TASK_IMAGE .vibesys/tasks/rpc-policy-k8s) and
 # the cluster the environment gives: KUBECONFIG, VIBESYS_K8S_REGISTRY, VIBESYS_K8S_BUILDER (the
-# task container runs on the host network), and DOCKER_CONFIG (default ~/.docker) with
-# credentials for ghcr.io, where the task image's base is (README.md, "Run it"). Each candidate is
+# task container runs on the host network). Each candidate is
 # the repository's HEAD (git archive) with the patch applied, in a fresh directory under OUT_DIR.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -31,7 +30,6 @@ for name in "${names[@]}"; do
     --mount "type=bind,source=$cand/project,target=/candidate,readonly" \
     --mount "type=bind,source=$KUBECONFIG,target=/vibesys/kubeconfig,readonly" \
     --mount "type=bind,source=$cand/artifacts,target=/vibesys/artifacts" \
-    --mount "type=bind,source=${DOCKER_CONFIG:-$HOME/.docker},target=/docker,readonly" -e DOCKER_CONFIG=/docker \
     -e KUBECONFIG=/vibesys/kubeconfig -e VIBESYS_K8S_REGISTRY -e VIBESYS_K8S_BUILDER \
     "$image" /task/rpc-policy-k8s accuracy --project-root /candidate > "$cand/accuracy.log" 2>&1
   code=$?
