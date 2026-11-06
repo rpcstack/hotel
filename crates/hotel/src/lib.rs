@@ -1,5 +1,3 @@
-pub mod profile_layer;
-
 /// Generated protobuf/gRPC code for every hotel service. Binaries include the
 /// same generated files; this copy lets tests inspect the generated types.
 pub mod proto {
@@ -32,18 +30,32 @@ pub mod proto {
     }
 }
 
-use masa::transport::LoadBalancedChannel;
+use std::time::Duration;
+
+use tonic::transport::{Channel, Endpoint};
 
 /// Connect to a downstream hotel service.
 ///
 /// With one replica the service is addressed by its DNS name (`ip`), which is
-/// the Compose service name or the Kubernetes Service name. With `replicas > 1`
-/// Masa's client-side round robin dials `ip-1 .. ip-N` (one hostname per
-/// replica, e.g. Compose container names), as in the original benchmark.
-pub async fn connect(ip: String, port: u16, replicas: u8) -> LoadBalancedChannel {
+/// the Compose service name or the Kubernetes Service name; the connection is
+/// retried until the service is up. With `replicas > 1` the client balances
+/// over `ip-1 .. ip-N` (one hostname per replica, e.g. Compose container
+/// names), as in the original benchmark.
+pub async fn connect(ip: String, port: u16, replicas: u8) -> Channel {
     if replicas <= 1 {
-        LoadBalancedChannel::new_from_service_name(ip, port, replicas).await
+        let endpoint = Endpoint::from_shared(format!("http://{ip}:{port}")).unwrap();
+        loop {
+            match endpoint.connect().await {
+                Ok(channel) => return channel,
+                Err(error) => {
+                    log::warn!("failed to connect to {}: {error}; retrying", endpoint.uri());
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                }
+            }
+        }
     } else {
-        LoadBalancedChannel::new(ip, port, replicas).await
+        let endpoints = (1..=replicas)
+            .map(|i| Endpoint::from_shared(format!("http://{ip}-{i}:{port}")).unwrap());
+        Channel::balance_list(endpoints)
     }
 }

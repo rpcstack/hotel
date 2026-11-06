@@ -49,7 +49,6 @@ pub struct UserServiceConfig {
     pub endpoint: BasicServiceConfig,
     pub mongodb_addr: String,
     pub users: u32,
-    pub prob_check_user: u32,
 }
 
 impl Deref for UserServiceConfig {
@@ -66,7 +65,71 @@ impl DerefMut for UserServiceConfig {
     }
 }
 
-pub type FrontendConfig = BasicServiceConfig;
+/// Per-route SLOs (milliseconds) the HTTP frontend gives each request's root
+/// context: the request's deadline is "now + SLO" when it enters the RPC stack.
+/// Application configuration, deliberately outside the policy directory so a
+/// policy cannot relax its own deadlines. Defaults are what
+/// `config/gen_config.json` gives the gRPC load generator (200 ms per API).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HttpSlosMs {
+    /// `GET /hotels`; root-context API name `Search`.
+    #[serde(default = "default_slo_ms")]
+    pub search: u64,
+    /// `GET /reservation`; API name `Reservation`.
+    #[serde(default = "default_slo_ms")]
+    pub reservation: u64,
+    /// `GET /recommendations`; API name `Recommendation`.
+    #[serde(default = "default_slo_ms")]
+    pub recommendation: u64,
+    /// `GET /user`; API name `User`.
+    #[serde(default = "default_slo_ms")]
+    pub user: u64,
+    /// `GET /rates`; API name `Rates`.
+    #[serde(default = "default_slo_ms")]
+    pub rates: u64,
+}
+
+impl Default for HttpSlosMs {
+    fn default() -> Self {
+        Self {
+            search: default_slo_ms(),
+            reservation: default_slo_ms(),
+            recommendation: default_slo_ms(),
+            user: default_slo_ms(),
+            rates: default_slo_ms(),
+        }
+    }
+}
+
+/// The frontend: the gRPC endpoint (`port`) plus the HTTP/JSON endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FrontendServiceConfig {
+    #[serde(flatten)]
+    pub endpoint: BasicServiceConfig,
+    /// Port of the HTTP/JSON API (5000, like DeathStarBench's Go frontend).
+    #[serde(default = "default_http_port")]
+    pub http_port: u16,
+    #[serde(default)]
+    pub slo_ms: HttpSlosMs,
+}
+
+impl Deref for FrontendServiceConfig {
+    type Target = BasicServiceConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.endpoint
+    }
+}
+
+impl DerefMut for FrontendServiceConfig {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.endpoint
+    }
+}
+
+pub type FrontendConfig = FrontendServiceConfig;
 pub type GeoConfig = BasicServiceConfig;
 pub type ProfileConfig = CachedServiceConfig;
 pub type RateConfig = CachedServiceConfig;
@@ -89,6 +152,14 @@ pub struct HotelConfig {
     pub review: ReviewConfig,
     pub search: SearchConfig,
     pub user: UserConfig,
+}
+
+fn default_http_port() -> u16 {
+    5000
+}
+
+fn default_slo_ms() -> u64 {
+    200
 }
 
 fn one() -> u8 {

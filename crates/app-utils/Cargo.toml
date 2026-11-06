@@ -5,13 +5,7 @@ edition = "2021"
 license = "MIT"
 publish = false
 
-[features]
-# Pass-through Masa features that change load-generator behaviour.
-ac_rajomon = ["masa/ac_rajomon"]
-trace_queue_latency = ["masa/trace_queue_latency"]
-
 [dependencies]
-masa = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tonic = { workspace = true }
 rand = "0.8"

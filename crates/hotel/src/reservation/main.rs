@@ -24,12 +24,6 @@ pub struct Args {
     pub config: PathBuf,
 }
 
-#[cfg(feature = "sched_mt")]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    app_utils::runtime::block_on(main_inner())
-}
-
-#[cfg(not(feature = "sched_mt"))]
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     main_inner().await

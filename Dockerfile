@@ -3,11 +3,12 @@
 # One builder compiles every hotel binary once; one runtime image carries them
 # all and docker/entrypoint.sh picks the binary from the first argument.
 #
-#   docker build --build-arg MODE=masa -t rpcstack-hotel:masa .
+#   docker build --build-arg MODE=policy -t rpcstack-hotel:policy .
 #
-# MODE selects the policy preset (Cargo feature of the hotel crate):
-#   baseline  generated stubs use NoopHooks (no policy)
-#   masa      sched_slo,abort_slo,signal_slack,est_mean_var,ac_pred
+# MODE selects the policy mode (Cargo feature of the hotel crate):
+#   baseline  framework defaults: generated stubs use NoopHooks, FIFO run queue
+#   policy    the RPC policy of the policy/ directory (run queue + module
+#             stack); starts as a no-op, like baseline
 # FEATURES, if set, overrides MODE with an explicit Cargo feature list.
 
 ARG RUST_IMAGE=rust:1-slim-bookworm
@@ -34,6 +35,7 @@ RUN rustup show active-toolchain || rustup toolchain install
 FROM chef AS planner
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
+COPY policy policy
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
@@ -46,12 +48,17 @@ RUN set -eu; \
     if [ -z "$features" ]; then \
       case "$MODE" in \
         baseline) features=baseline ;; \
-        masa) features=masa ;; \
-        *) echo "unknown MODE=$MODE (expected baseline or masa)" >&2; exit 1 ;; \
+        policy) features=policy ;; \
+        *) echo "unknown MODE=$MODE (expected baseline or policy)" >&2; exit 1 ;; \
       esac; \
     fi; \
     echo "$features" > /features
 COPY --from=planner /src/recipe.json recipe.json
+# The policy mode compiles the run queue into rpcstack-sched, which is a
+# dependency, so the queue source must exist at cook time (.cargo/config.toml
+# points RPCSTACK_QUEUE_SOURCE at it; other modes ignore it).
+COPY .cargo .cargo
+COPY policy/queue policy/queue
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     export ${BUILD_JOBS:+CARGO_BUILD_JOBS=$BUILD_JOBS}; \
@@ -59,6 +66,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
       --recipe-path recipe.json
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
+COPY policy policy
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     set -eu; \

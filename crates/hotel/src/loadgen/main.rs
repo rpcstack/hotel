@@ -121,8 +121,8 @@ async fn send_reservation(
     client: Arc<Mutex<FrontendClient<Channel>>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let request = tonic::Request::new(ReservationRequest {
-        username: "testuser".to_string(),
-        password: "testpass".to_string(),
+        username: "Username_1".to_string(),
+        password: "1111111111".to_string(),
         customer: "Alice".to_string(),
         hotels: vec!["hotel1".to_string(), "hotel2".to_string()],
         in_date: "2025-06-01".to_string(),

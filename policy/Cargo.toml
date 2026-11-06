@@ -1,0 +1,20 @@
+[package]
+name = "hotel-policy"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "The hotel app's RPC policy: run-queue scheduler and policy-module stack, starting as a no-op (FIFO, empty stack). The only directory an optimization agent edits."
+
+[dependencies]
+# Framework core only. `policy_stack!`, `Module` and the stack types come from
+# `rpcstack`, the hooks adapter `PolicyHooks<S>` from `rpcstack-tonic`.
+rpcstack = { workspace = true }
+rpcstack-tonic = { workspace = true }
+rpcstack-sched = { workspace = true }
+# `sched_custom` makes Tokio run the queue in queue/queue.rs.
+tokio = { workspace = true, features = ["sched_custom"] }
+# Let Tonic and Hyper pass the opaque scheduling priority (header
+# `x-rpcstack-scheduling`) from a request to its Tokio task.
+tonic = { workspace = true, features = ["rpcstack"] }
+hyper = { version = "0.14", features = ["rpcstack"] }

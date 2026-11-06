@@ -7,12 +7,19 @@ This repository is the reference layout for porting a benchmark application
 
 * `Cargo.toml` is a workspace (`crates/<app>`, `crates/app-utils`, ...).
 * Pin rpcstack once in `[workspace.dependencies]` as a git dependency at an
-  exact `rev` (`masa`, `tonic`, `tonic-build` with `prost`, `tokio`); members use
+  exact `rev` (`rpcstack`, `rpcstack-tonic`, `rpcstack-sched`, `tonic`, `tonic-build` with `prost`, `tokio`; depend on the framework core only, not on a published policy); members use
   `{ workspace = true }`. No path dependencies outside the repository.
 * Repeat the same rev in `[patch.crates-io]` for `tokio` and `hyper` (Cargo does
   not let patches inherit workspace deps, and patches do not propagate from
   rpcstack's own workspace). `scripts/check.sh` fails if the revs differ, if
   `Cargo.lock` resolves two revs, or if the graph has a second tokio/hyper.
+* Add rpcstack as a read-only git submodule at `rpcstack/` (https URL,
+  `shallow = true`) at the same commit as the rev, so an agent working in the
+  repo can read the framework, `examples/` (published policies) and `docs/`;
+  `scripts/check.sh` fails if the submodule commit and the rev differ (it reads
+  the gitlink, so it needs no checkout). Keep the Cargo dependencies as git
+  deps and `exclude = ["rpcstack"]` in the workspace: builds must not need the
+  submodule (Docker and CI do not initialize it; `.dockerignore` skips it).
 * Copy rpcstack's `rust-toolchain.toml`. Commit `Cargo.lock`; build `--locked`.
 * If resolution picks a newer `tokio-util`, pin `tokio-util = "=0.7.11"`
   (the vendored Hyper requires it).
@@ -21,18 +28,25 @@ This repository is the reference layout for porting a benchmark application
 
 rpcstack's `tonic-build` generates stubs whose hook parameter defaults to
 `tonic::rpcstack::noop::NoopHooks`. **Every** `tonic_build::configure()` call
-must set `.default_hooks_path("masa::DefaultHooks")` (or your stack's hooks),
+must set `.default_hooks_path(...)` (the no-op hooks spelled out for `baseline`, or your stack's hooks),
 otherwise that service silently runs without the policy. Generate all protos
 through one helper in `build.rs` (see `crates/hotel/build.rs`) and keep a test
 like `crates/hotel/tests/hooks.rs`: it checks every client type and every
-generated source's defaults, and that `masa::DefaultHooks` is not `NoopHooks`
-when the policy feature is on.
+generated source's defaults, and that the policy mode's hooks are not `NoopHooks`. `build.rs` also asserts
+that each generated stub names the expected hooks twice and, in policy mode,
+never `NoopHooks`, so a stub cannot silently fall back to no-op hooks.
+
+An optimization-agent variant keeps the policy in one crate: hotel's `policy/`
+defines `Hooks = PolicyHooks<Stack>` and a run queue (`sched_custom` +
+`RPCSTACK_QUEUE_SOURCE`, set in `.cargo/config.toml`); `build.rs` points
+`default_hooks_path` at `hotel_policy::Hooks` in `--features policy` builds.
+Build modes one at a time with explicit packages, not `--workspace`: the policy
+crate enables rpcstack features that would otherwise unify into a baseline build.
 
 ## 3. Modes as Cargo features
 
-`baseline = []` and `masa = [<preset>]` on the application crate, plus the
-individual Masa features passed through. The mode flows Cargo feature →
-Docker build arg `MODE` (or `FEATURES`) → Compose `MODE` env / k8s overlay.
+`baseline = []` and `policy = ["dep:<app>-policy"]` on the application crate. The mode flows Cargo feature →
+Docker build arg `MODE` → Compose `MODE` env / k8s overlay.
 
 ## 4. Docker
 
@@ -51,7 +65,7 @@ are baked in at `/etc/<app>` and overridden by a mount of `config/`.
 * `k8s/base`: a Deployment + Service per process with the same names, a
   ConfigMap generated from `config/` (fixed name via
   `disableNameSuffixHash`, so smoke Jobs can mount it), image `localhost:5001/<app>:baseline`;
-  `k8s/overlays/masa` changes only the tag. Scripts: `kind-up.sh` (kind +
+  `k8s/overlays/policy` changes only the tag. Scripts: `kind-up.sh` (kind +
   `registry:2`), `k8s-deploy.sh [mode]`, `k8s-teardown.sh [--cluster]`,
   `kind-down.sh`. Use unique cluster/registry/project names. Pods may restart once
   while their databases start; the k8s smoke only counts restarts after
@@ -72,18 +86,12 @@ for Compose and Kubernetes.
 
 `scripts/smoke-compose.sh [mode]` and `scripts/smoke-k8s.sh [mode]` must:
 check readiness, run moderate load with zero transport errors and a stated
-success threshold, and prove the policy is live with a check that **fails in
-baseline**. Hotel's probe sends each service a request whose Masa deadline has
-already expired and requires `/EarlyReturn?src=<that service>` in masa mode
-and none in baseline. In baseline mode the smoke also runs the probe with
-`--expect masa` as a **negative control that must fail** (it exits non-zero
-with `PROBE FAIL`), so a probe that cannot distinguish the modes breaks the
-smoke. Add an overload burst (masa must reject some requests)
+success threshold, add an overload burst
 and a recovery run, and fail on panics or restarts. `scripts/lib/check_traces.py`
 classifies load-generator traces and is reusable as is.
 
 ## 7. CI
 
 `.github/workflows/ci.yml`: fmt and `scripts/check.sh`, `scripts/test.sh` in
-both modes, Docker build per mode, Compose smoke per mode. Kubernetes smoke is
+all modes, Docker build per mode, Compose smoke per mode. Kubernetes smoke is
 a manual (`workflow_dispatch`) / nightly workflow.

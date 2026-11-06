@@ -26,11 +26,11 @@ use tokio::task::JoinSet;
 use tokio::time::error::Elapsed;
 use tonic::metadata::MetadataMap;
 
+use crate::root_context::{Context, RootContext};
 use crate::{
     logging::init_logging_file,
     timing::{get_timestamp, time_now},
 };
-use masa::{Context, RootContext};
 use tonic::Response;
 use tonic::Status;
 
@@ -307,23 +307,9 @@ pub struct TraceRecord {
     pub q_lat_init: u64,
     pub q_lat_resume: u64,
     /// JSON-encoded map of service name → queue length at first poll.
-    /// Populated only when `trace_queue_latency` feature is enabled.
+    /// Always empty: no policy reports queue lengths.
     pub queue_lengths: String,
     pub additional_metrics: Vec<String>,
-}
-
-/// Read the price Rajomon propagated in the response's wire data and update
-/// the client-side cached price for `api`. Shared between
-/// `Handler::send_request` and bespoke loadgens (e.g. tracebench) so the same
-/// Ok+Err-aware parsing is applied everywhere. See
-/// `apps/app-utils/src/load_gen.rs:406-418` for the reasoning behind reading
-/// from error responses too.
-#[cfg(feature = "ac_rajomon")]
-pub fn update_rajomon_price_from_metadata(md: &tonic::metadata::MetadataMap, api: &str) {
-    if let Some(price) = masa::rajomon_price_from_metadata(md) {
-        let method = tonic::CowGrpcMethod::new("", api.to_string());
-        masa::update_rajomon_price(&method, price);
-    }
 }
 
 impl TraceRecord {
@@ -393,15 +379,6 @@ impl TraceRecord {
     }
 }
 
-#[cfg(feature = "trace_queue_latency")]
-fn format_queue_lengths(ql: &HashMap<String, u64>) -> String {
-    if ql.is_empty() {
-        return String::new();
-    }
-    let pairs: Vec<String> = ql.iter().map(|(k, v)| format!("\"{}\":{}", k, v)).collect();
-    format!("{{{}}}", pairs.join(","))
-}
-
 #[derive(Debug, Default)]
 struct QueueLatencyTraceFields {
     initial_us: u64,
@@ -409,19 +386,6 @@ struct QueueLatencyTraceFields {
     queue_lengths_json: String,
 }
 
-#[cfg(feature = "trace_queue_latency")]
-fn queue_latency_from_metadata(metadata: &MetadataMap) -> QueueLatencyTraceFields {
-    match masa::queue_latencies_from_metadata(metadata) {
-        Some(ql) => QueueLatencyTraceFields {
-            initial_us: ql.initial,
-            resume_us: ql.resume,
-            queue_lengths_json: format_queue_lengths(&ql.queue_lengths),
-        },
-        None => QueueLatencyTraceFields::default(),
-    }
-}
-
-#[cfg(not(feature = "trace_queue_latency"))]
 fn queue_latency_from_metadata(_metadata: &MetadataMap) -> QueueLatencyTraceFields {
     QueueLatencyTraceFields::default()
 }
@@ -532,31 +496,6 @@ where
             latency = recv_at - send_at;
             r
         };
-
-        // Extract the rajomon price header from BOTH success and error responses
-        // before `map_response` consumes the result. The server's `finalize`
-        // hook writes the price into the response metadata on Ok and into the
-        // Status metadata on Err
-        // (libs/masa-policy/src/layer/admission/rajomon/mod.rs), and the
-        // Go reference reads it regardless of err
-        // (3rd_party/rajomon/rajomon.go:181-189). Reading only from successful
-        // responses creates a starvation feedback loop: a method whose
-        // responses are all rejected never bootstraps its client
-        // `cached_prices` entry, so the loadgen never throttles it, so its
-        // server gate keeps firing on every random `tok` draw. See
-        // 3rd_party/rajomon/RUST_PORT_ALIGNMENT.md and
-        // exp/docs/tundra.md for the empirical symptom.
-        #[cfg(feature = "ac_rajomon")]
-        {
-            let metadata: Option<&MetadataMap> = match &response {
-                Ok(Ok(resp)) => Some(resp.metadata()),
-                Ok(Err(status)) => Some(status.metadata()),
-                Err(_) => None,
-            };
-            if let Some(md) = metadata {
-                update_rajomon_price_from_metadata(md, &self.api);
-            }
-        }
 
         let (response, error) = map_response(response, latency <= self.slo);
 
@@ -806,24 +745,10 @@ where
             let i = self.sample_api_handler();
             let handler = Arc::clone(&self.api_handlers[i]);
 
-            #[cfg(feature = "ac_rajomon")]
-            let ctx = {
-                match masa::try_create_context(
-                    handler.api(),
-                    std::time::Duration::from_micros(handler.slo()),
-                ) {
-                    Some(ctx) => ctx,
-                    None => {
-                        counters.increment("client_shed");
-                        continue;
-                    }
-                }
-            };
-            #[cfg(not(feature = "ac_rajomon"))]
-            let ctx = RootContext::from(masa::create_context(
+            let ctx = RootContext::new(
                 handler.api(),
                 std::time::Duration::from_micros(handler.slo()),
-            ));
+            );
 
             let client = self.client.clone();
             let ctrs = Arc::clone(&counters);

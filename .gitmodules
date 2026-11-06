@@ -1,0 +1,4 @@
+[submodule "rpcstack"]
+	path = rpcstack
+	url = https://github.com/rpcstack/rpcstack
+	shallow = true
