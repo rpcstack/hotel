@@ -6,9 +6,9 @@ and p99 latency (open loop at a fixed rate) on Kubernetes, behind an accuracy ch
 oracle judges every answer of a recorded history. The agent's brief is
 [OBJECTIVE.md](OBJECTIVE.md); this file is for whoever maintains the task.
 
-It runs on vibesys-evaluator 0.3.0rc2: the Go SDK (`github.com/uw-syfi/vibesys/sdk/
-vibesys-evaluator/go v0.3.0-rc.2`, in `evaluator/go.mod`) and the Python package
-(`vibesys-evaluator==0.3.0rc2` from PyPI, installed in `Dockerfile`).
+It runs on vibesys-evaluator 0.3.0rc3: the Go SDK (`github.com/uw-syfi/vibesys/sdk/
+vibesys-evaluator/go v0.3.0-rc.3`, in `evaluator/go.mod`) and the Python package
+(`vibesys-evaluator==0.3.0rc3` from PyPI, installed in `Dockerfile`).
 Both pins move together.
 
 ## Layout
