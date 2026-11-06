@@ -7,8 +7,8 @@ oracle judges every answer of a recorded history. The agent's brief is
 [OBJECTIVE.md](OBJECTIVE.md); this file is for whoever maintains the task.
 
 It runs on vibesys-evaluator 0.3.0rc2: the Go SDK (`github.com/uw-syfi/vibesys/sdk/
-vibesys-evaluator/go v0.3.0-rc.2`, in `evaluator/go.mod`) and the microservices image
-(`ghcr.io/uw-syfi/vibesys-evaluator-microservices:0.3.0rc2`, by digest, in `Dockerfile`).
+vibesys-evaluator/go v0.3.0-rc.2`, in `evaluator/go.mod`) and the Python package
+(`vibesys-evaluator==0.3.0rc2` from PyPI, installed in `Dockerfile`).
 Both pins move together.
 
 ## Layout
@@ -196,15 +196,13 @@ spacing; the checker's cost grows with it); the check takes about 0.5 s and 40 M
 
 On a cluster (the environment vibesys gives a job: `KUBECONFIG`, `VIBESYS_K8S_REGISTRY`,
 `VIBESYS_K8S_BUILDER`), from the repository root. The runner rebuilds the task image in the
-cluster from `/task` for its pods, and that image starts from the private evaluator image: its
-build needs registry credentials for `ghcr.io` once the builder's cache no longer holds it,
-which the task container's `buildctl` takes from `DOCKER_CONFIG`:
+cluster from `/task` for its pods; that build needs no registry credentials (its bases are public
+and the evaluator comes from PyPI):
 
 ```sh
 docker build -t rpc-policy-k8s-task .vibesys/tasks/rpc-policy-k8s
 run() { docker run --rm --init --network host --user "$(id -u):$(id -g)" \
   -v "$PWD:/candidate:ro" -v "$PWD/out:/vibesys/artifacts" -v "$KUBECONFIG:/kubeconfig:ro" \
-  -v "$HOME/.docker:/docker:ro" -e DOCKER_CONFIG=/docker \
   -e KUBECONFIG=/kubeconfig -e VIBESYS_K8S_REGISTRY -e VIBESYS_K8S_BUILDER \
   rpc-policy-k8s-task /task/rpc-policy-k8s "$@" --project-root /candidate; }
 mkdir -p out && chmod 777 out
