@@ -8,7 +8,9 @@
 # MODE selects the policy mode (Cargo feature of the hotel crate):
 #   baseline  framework defaults: generated stubs use NoopHooks, FIFO run queue
 #   policy    the RPC policy of the policy/ directory (run queue + module
-#             stack); starts as a no-op, like baseline
+#             stack); starts as a no-op, like baseline. The default: an image
+#             built without build arguments (the vibesys task builds it so,
+#             .vibesys/tasks/rpc-policy-k8s) runs the policy/ directory.
 # FEATURES, if set, overrides MODE with an explicit Cargo feature list.
 
 ARG RUST_IMAGE=rust:1-slim-bookworm
@@ -40,7 +42,7 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 # Declared late so the toolchain layers above are shared by every mode.
-ARG MODE=baseline
+ARG MODE=policy
 ARG FEATURES=
 ARG BUILD_JOBS=
 RUN set -eu; \

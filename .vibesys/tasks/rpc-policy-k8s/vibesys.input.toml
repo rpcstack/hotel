@@ -1,0 +1,28 @@
+version = "0.2"
+backends = ["cpu"]
+
+[agent]
+domain = "microservices"
+
+[environment]
+needs = ["kubernetes"]
+
+# Both commands run the trusted task binaries baked into the task image at /task, on
+# vibesys-evaluator's Go microservices runner; they read KUBECONFIG, VIBESYS_K8S_REGISTRY and
+# VIBESYS_K8S_BUILDER from the environment. Each builds the candidate's image from its root
+# Dockerfile (after checking that it edits only policy/), deploys it with the repository's
+# manifests into a namespace of its own, and deletes the namespace at the end.
+#
+# The accuracy check (exit 0 PASS, 1 FAIL, 2 UNKNOWN): four open-loop phases of the accuracy
+# workload at 30 ops/s with every answer captured, faults between them, then the oracle
+# (evaluator/internal/oracle) on the history.
+[accuracy]
+command = ["/task/rpc-policy-k8s", "accuracy", "--project-root", "${PROJECT_ROOT}"]
+timeout_seconds = 3600
+
+# One sample per run: 2 closed-loop phases (throughput), then 3 open-loop phases at a fixed
+# rate (p99 latency).
+[benchmark]
+command = ["/task/rpc-policy-k8s", "benchmark", "--project-root", "${PROJECT_ROOT}"]
+timeout_seconds = 3600
+result_protocol = 2

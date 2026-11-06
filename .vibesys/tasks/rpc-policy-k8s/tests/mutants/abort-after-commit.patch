@@ -1,0 +1,77 @@
+diff -ruN a/policy/src/lib.rs b/policy/src/lib.rs
+--- a/policy/src/lib.rs
++++ b/policy/src/lib.rs
+@@ -14,5 +14,6 @@
+ #[path = "../queue/queue.rs"]
+ pub mod queue;
+ pub mod stack;
++pub mod reservation_guard;
+ 
+ pub use stack::{Hooks, Stack};
+diff -ruN a/policy/src/reservation_guard.rs b/policy/src/reservation_guard.rs
+--- a/policy/src/reservation_guard.rs
++++ b/policy/src/reservation_guard.rs
+@@ -0,0 +1,51 @@
++//! MUTANT for the task's accuracy check (tests/mutants), not a policy to keep: a "deadline
++//! guard" in the frontend that fails one MakeReservation child in three with DEADLINE_EXCEEDED
++//! after its answer arrived, i.e. after the reservation service booked the rooms. The client
++//! gets a 504 for a reservation that was made.
++
++use std::sync::atomic::{AtomicU64, Ordering};
++
++use rpcstack::{ChildOutcome, ChildState, Extensions, MissingDependency, Module, ModuleServer, ServerInit, WireIn};
++use tonic::{CowGrpcMethod, Status};
++
++static RESERVATIONS: AtomicU64 = AtomicU64::new(0);
++
++#[derive(Debug)]
++pub struct ReservationGuardServer;
++
++impl ModuleServer for ReservationGuardServer {
++    fn new(_init: &mut ServerInit) -> Result<Self, MissingDependency> {
++        Ok(Self)
++    }
++}
++
++#[derive(Debug)]
++pub struct ReservationGuard;
++
++impl Module for ReservationGuard {
++    type Server = ReservationGuardServer;
++    const NAME: &'static str = "reservation_guard";
++    type Wire = ();
++    const POLL_HOOKS: bool = false;
++
++    fn new(_method: &CowGrpcMethod, _server: &ReservationGuardServer, _wire: &WireIn<'_>, _ext: &mut Extensions) -> Self {
++        Self
++    }
++
++    fn after_child_rpc<T>(
++        &self,
++        child_method: &CowGrpcMethod,
++        outcome: ChildOutcome<'_, T>,
++        _response_wire: &WireIn<'_>,
++        _child: &ChildState,
++        _ext: &Extensions,
++    ) -> Result<(), Status> {
++        if child_method.method() == "MakeReservation"
++            && matches!(outcome.sent(), Some(Ok(_)))
++            && RESERVATIONS.fetch_add(1, Ordering::Relaxed) % 3 == 0
++        {
++            return Err(Status::deadline_exceeded("reservation exceeded its time budget"));
++        }
++        Ok(())
++    }
++}
+diff -ruN a/policy/src/stack.rs b/policy/src/stack.rs
+--- a/policy/src/stack.rs
++++ b/policy/src/stack.rs
+@@ -17,7 +17,7 @@
+ use rpcstack::policy_stack;
+ 
+ /// The module stack: empty.
+-pub type Stack = policy_stack![];
++pub type Stack = policy_stack![crate::reservation_guard::ReservationGuard];
+ 
+ /// The hooks every generated client and server stub runs.
+ pub type Hooks = rpcstack_tonic::PolicyHooks<Stack>;

@@ -1,0 +1,171 @@
+diff -ruN a/policy/src/availability_cache.rs b/policy/src/availability_cache.rs
+--- a/policy/src/availability_cache.rs
++++ b/policy/src/availability_cache.rs
+@@ -0,0 +1,135 @@
++//! MUTANT for the task's accuracy check (tests/mutants), not a policy to keep: a module that
++//! memoizes the reservation service's CheckAvailability answers for 30 seconds, keyed by the
++//! request (the frontend puts the request's hash into the wire; the reservation service answers
++//! a repeated request from its cache before the handler runs, skipping its database reads and its
++//! 100 ms sleep). Searches get faster, and keep showing a hotel whose night filled up meanwhile.
++
++use std::any::Any;
++use std::collections::HashMap;
++use std::hash::{DefaultHasher, Hash, Hasher};
++use std::sync::{Mutex, OnceLock};
++use std::task::Poll;
++use std::time::{Duration, Instant};
++
++use rpcstack::{ChildState, Extensions, MissingDependency, Module, ModuleServer, ServerInit, WireIn, WireOut};
++use tonic::{CowGrpcMethod, Response, Status};
++
++const TTL: Duration = Duration::from_secs(30);
++
++/// The hash of a request message (every prost message is Debug).
++trait RequestKey {
++    fn request_key(&self) -> Option<u64>;
++}
++impl<T> RequestKey for T {
++    default fn request_key(&self) -> Option<u64> {
++        None
++    }
++}
++impl<T: std::fmt::Debug> RequestKey for T {
++    fn request_key(&self) -> Option<u64> {
++        let mut h = DefaultHasher::new();
++        format!("{self:?}").hash(&mut h);
++        Some(h.finish())
++    }
++}
++
++type Cached = Box<dyn Any + Send + Sync>;
++
++/// A response message kept in, and taken from, the cache (every prost message is Clone).
++trait Memo: Sized {
++    fn save(&self) -> Option<Cached>;
++    fn load(cached: &Cached) -> Option<Self>;
++}
++impl<T> Memo for T {
++    default fn save(&self) -> Option<Cached> {
++        None
++    }
++    default fn load(_: &Cached) -> Option<Self> {
++        None
++    }
++}
++impl<T: Clone + Send + Sync + 'static> Memo for T {
++    fn save(&self) -> Option<Cached> {
++        Some(Box::new(self.clone()))
++    }
++    fn load(cached: &Cached) -> Option<Self> {
++        cached.downcast_ref::<T>().cloned()
++    }
++}
++
++fn cache() -> &'static Mutex<HashMap<u64, (Instant, Cached)>> {
++    static CACHE: OnceLock<Mutex<HashMap<u64, (Instant, Cached)>>> = OnceLock::new();
++    CACHE.get_or_init(Default::default)
++}
++
++fn availability(method: &CowGrpcMethod) -> bool {
++    method.method() == "CheckAvailability"
++}
++
++#[derive(Debug)]
++pub struct AvailabilityCacheServer;
++
++impl ModuleServer for AvailabilityCacheServer {
++    fn new(_init: &mut ServerInit) -> Result<Self, MissingDependency> {
++        Ok(Self)
++    }
++}
++
++#[derive(Debug)]
++pub struct AvailabilityCache {
++    key: Option<u64>,
++}
++
++impl Module for AvailabilityCache {
++    type Server = AvailabilityCacheServer;
++    const NAME: &'static str = "availability_cache";
++    type Wire = u64;
++
++    fn new(method: &CowGrpcMethod, _server: &AvailabilityCacheServer, wire: &WireIn<'_>, _ext: &mut Extensions) -> Self {
++        let key = if availability(method) { wire.get::<Self>().ok().flatten() } else { None };
++        Self { key }
++    }
++
++    fn before_poll<Ret>(&self, _ext: &mut Extensions) -> Result<(), Result<Response<Ret>, Status>> {
++        if let Some(key) = self.key {
++            if let Some((at, cached)) = cache().lock().unwrap().get(&key) {
++                if at.elapsed() < TTL {
++                    if let Some(response) = <Ret as Memo>::load(cached) {
++                        return Err(Ok(Response::new(response)));
++                    }
++                }
++            }
++        }
++        Ok(())
++    }
++
++    fn before_child_rpc<T>(
++        &self,
++        child_method: &CowGrpcMethod,
++        _child: &mut ChildState,
++        request: &mut tonic::Request<T>,
++        child_wire: &mut WireOut,
++        _ext: &mut Extensions,
++    ) -> Result<(), Status> {
++        if availability(child_method) {
++            if let Some(key) = request.get_ref().request_key() {
++                let _ = child_wire.put::<Self>(&key);
++            }
++        }
++        Ok(())
++    }
++
++    fn after_poll<Ret>(&self, poll: &Poll<Result<Response<Ret>, Status>>, _ext: &Extensions) -> Result<(), Result<Response<Ret>, Status>> {
++        // The handler's answer, as a message (finalize sees it already wrapped for serialization).
++        if let (Some(key), Poll::Ready(Ok(response))) = (self.key, poll) {
++            let mut cache = cache().lock().unwrap();
++            let fresh = cache.get(&key).is_some_and(|(at, _)| at.elapsed() < TTL);
++            if !fresh {
++                if let Some(saved) = response.get_ref().save() {
++                    cache.insert(key, (Instant::now(), saved));
++                }
++            }
++        }
++        Ok(())
++    }
++}
+diff -ruN a/policy/src/lib.rs b/policy/src/lib.rs
+--- a/policy/src/lib.rs
++++ b/policy/src/lib.rs
+@@ -7,6 +7,9 @@
+ //! - [`stack`] (`stack.rs`): the policy-module stack and the [`Hooks`] type
+ //!   every generated gRPC stub uses (`default_hooks_path("hotel_policy::Hooks")`).
+ 
++#![allow(incomplete_features)]
++#![feature(specialization)]
++
+ // The queue source is shared with rpcstack-sched, whose crate root exports
+ // these; re-exporting them here makes the same file compile in both crates.
+ pub use rpcstack_sched::{default_policy, Meta, PollOutcome, RunQueue, SchedFlavor, TaskView};
+@@ -14,5 +17,6 @@
+ #[path = "../queue/queue.rs"]
+ pub mod queue;
+ pub mod stack;
++pub mod availability_cache;
+ 
+ pub use stack::{Hooks, Stack};
+diff -ruN a/policy/src/stack.rs b/policy/src/stack.rs
+--- a/policy/src/stack.rs
++++ b/policy/src/stack.rs
+@@ -17,7 +17,7 @@
+ use rpcstack::policy_stack;
+ 
+ /// The module stack: empty.
+-pub type Stack = policy_stack![];
++pub type Stack = policy_stack![crate::availability_cache::AvailabilityCache];
+ 
+ /// The hooks every generated client and server stub runs.
+ pub type Hooks = rpcstack_tonic::PolicyHooks<Stack>;

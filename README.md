@@ -174,10 +174,21 @@ because the framework core has no notion of deadlines or SLOs; a policy that
 wants budgets, deadline propagation or admission supplies its own modules.
 
 The mode is chosen at build time: Cargo feature → Docker build arg `MODE` →
-`MODE` env for Compose, or overlay for Kubernetes. `docker run --rm
+`MODE` env for Compose, or overlay for Kubernetes. An image built without `MODE`
+is `policy` (the vibesys task builds it so). `docker run --rm
 rpcstack-hotel:<mode> mode` prints what an image was built with. Scheduling is
 cooperative: rpcstack reorders and rejects work between future polls; it does
 not preempt a running handler.
+
+## VibeSys task
+
+[`.vibesys/tasks/rpc-policy-k8s`](.vibesys/tasks/rpc-policy-k8s/README.md) is the
+optimization task on this application: an agent edits only `policy/`, and each
+sample builds the image, deploys `k8s/base` into a namespace of its own and
+measures throughput in a closed loop and p99 latency in an open loop with
+DeathStarBench's request mix through the HTTP API; an accuracy check judges
+every answer of a recorded run with faults against a model of the reservations.
+The agent's brief is its [OBJECTIVE.md](.vibesys/tasks/rpc-policy-k8s/OBJECTIVE.md).
 
 ## The rpcstack framework source (`rpcstack/` submodule)
 
@@ -274,6 +285,7 @@ Cargo.toml            workspace; pins rpcstack (git rev) and patches tokio/hyper
 crates/hotel          services (frontend: gRPC + HTTP/JSON), load generator, probe, HTTP check, protos, build.rs
 crates/app-utils      load-generator runtime, logging, latency stats
 policy/               the editable RPC policy: run queue + module stack (policy mode)
+.vibesys/tasks/rpc-policy-k8s  the vibesys optimization task: edit policy/, scored on throughput and p99 (its README)
 .cargo/config.toml    RPCSTACK_QUEUE_SOURCE -> policy/queue/queue.rs
 config/               runtime configuration (mounted into containers)
 Dockerfile            one builder, one runtime image; docker/entrypoint.sh selects the binary
