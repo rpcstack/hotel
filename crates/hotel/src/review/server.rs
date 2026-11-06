@@ -2,9 +2,8 @@ use crate::{
     config::{GlobalConfig, ReviewConfig},
     db,
 };
-use futures::{lock::Mutex, StreamExt};
+use futures::StreamExt;
 use hotel_tonic::review::{review_server::Review, ReviewRequest, ReviewResponse};
-use masa::LatencyDistribution;
 use mongodb::{bson::doc, Client as MongoClient};
 use redis::{aio::ConnectionManager as RedisConnectionManager, AsyncCommands};
 use std::{error::Error, sync::Arc};
@@ -20,7 +19,6 @@ const CACHE_TTL_SECS: usize = 300;
 pub struct ReviewImpl {
     redis_conn: RedisConnectionManager,
     mongo_client: Arc<MongoClient>,
-    latency_tracker: Arc<Mutex<LatencyDistribution>>,
 }
 
 impl ReviewImpl {
@@ -29,15 +27,10 @@ impl ReviewImpl {
         let redis_conn = RedisConnectionManager::new(redis_client).await?;
         let mongo_client = db::initialize_database(&config.mongodb_addr).await?;
         let _ = global; // cache_conns is unused while we prototype Redis
-        let latency_tracker = Arc::new(Mutex::new(LatencyDistribution::new(
-            "ReviewSvc".into(),
-            1024,
-        )));
 
         Ok(Self {
             redis_conn,
             mongo_client: Arc::new(mongo_client),
-            latency_tracker,
         })
     }
 }
@@ -48,7 +41,6 @@ impl Review for ReviewImpl {
         &self,
         request: Request<ReviewRequest>,
     ) -> Result<Response<ReviewResponse>, Status> {
-        let start = std::time::Instant::now();
         let request = request.into_inner();
         let hotel_id = request.hotel_id;
 
@@ -130,13 +122,6 @@ impl Review for ReviewImpl {
                     }
                 }
             }
-        }
-
-        // Track latency
-        let elapsed = start.elapsed();
-        {
-            let mut tracker = self.latency_tracker.lock().await;
-            tracker.track(elapsed.as_micros() as u64);
         }
 
         Ok(Response::new(ReviewResponse { reviews }))

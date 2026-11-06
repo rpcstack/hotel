@@ -3,8 +3,9 @@
 //! (`hotelReservation/services/frontend`), so one load generator drives both.
 //!
 //! Every request enters the RPC stack the way `hotel_client_bench` does: this
-//! module creates the request's Masa root context (API name, per-route SLO from
-//! `config/hotel.json` `frontend.sloMs`, deadline = now + SLO), attaches it to a
+//! module creates the request's root context (API name, per-route SLO from
+//! `config/hotel.json` `frontend.sloMs`, deadline = now + SLO, stamped as the
+//! gRPC `grpc-timeout`; see `app_utils::root_context`), attaches it to a
 //! `FrontendClient` request and calls the frontend service. That client is
 //! connected in process to the very same `FrontendServer` that serves gRPC on
 //! the gRPC port: client hooks, the frontend's server hooks and its child RPCs
@@ -25,9 +26,9 @@ use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
 use std::time::Duration;
 
+use app_utils::root_context::RootContext;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, StatusCode};
-use masa::RootContext;
 use serde::Serialize;
 use tonic::body::BoxBody;
 use tonic::codegen::Service;
@@ -289,21 +290,10 @@ async fn route(state: &HttpFrontend, req: Request<Body>) -> Response<Body> {
 }
 
 /// Create the request's root context, as `hotel_client_bench` does, and call.
-/// `api` is the Masa API name; `slo_ms` comes from the app config.
+/// `api` is the API name; `slo_ms` comes from the app config.
 macro_rules! call_with_root {
     ($state:expr, $api:expr, $slo_ms:expr, $method:ident, $msg:expr) => {{
-        #[cfg(feature = "ac_rajomon")]
-        let ctx = match masa::try_create_context($api, Duration::from_millis($slo_ms)) {
-            Some(ctx) => ctx,
-            None => {
-                return text_error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "shed by the client token bucket",
-                )
-            }
-        };
-        #[cfg(not(feature = "ac_rajomon"))]
-        let ctx = RootContext::from(masa::create_context($api, Duration::from_millis($slo_ms)));
+        let ctx = RootContext::new($api, Duration::from_millis($slo_ms));
         let request = ctx.attach(tonic::Request::new($msg));
         let mut client = $state.client.clone();
         match client.$method(request).await {

@@ -4,11 +4,10 @@
 //! `tonic::rpcstack::noop::NoopHooks`. If `build.rs` forgets
 //! `.default_hooks_path(...)` for any proto, that service runs without the
 //! policy and nothing else fails. These checks compare the stubs' default hook
-//! type parameter against the mode's hooks: `masa::DefaultHooks` in `baseline`
-//! and `masa` mode, `hotel_policy::Hooks` (the `policy/` directory's stack) in
-//! `policy` mode; and, in the modes that have a policy, that those hooks are
-//! not the no-op hooks. (`build.rs` also fails the build on a stub that names
-//! `NoopHooks`.)
+//! type parameter against the mode's hooks: the framework's `NoopHooks` in
+//! `baseline` mode, `hotel_policy::Hooks` (the `policy/` directory's stack) in
+//! `policy` mode; and that in policy mode those hooks are not the no-op hooks.
+//! (`build.rs` also fails a policy build whose stub names `NoopHooks`.)
 
 use std::any::TypeId;
 
@@ -21,11 +20,11 @@ use tonic::transport::Channel;
 #[cfg(feature = "policy")]
 type ModeHooks = hotel_policy::Hooks;
 #[cfg(not(feature = "policy"))]
-type ModeHooks = masa::DefaultHooks;
+type ModeHooks = NoopHooks;
 #[cfg(feature = "policy")]
 const MODE_HOOKS_PATH: &str = "hotel_policy::Hooks";
 #[cfg(not(feature = "policy"))]
-const MODE_HOOKS_PATH: &str = "masa::DefaultHooks";
+const MODE_HOOKS_PATH: &str = "tonic::rpcstack::noop::NoopHooks";
 
 const PROTOS: &[&str] = &[
     "frontend",
@@ -74,6 +73,7 @@ fn generated_sources_default_to_mode_hooks() {
     for proto in PROTOS {
         let path = std::path::Path::new(env!("OUT_DIR")).join(format!("{proto}.rs"));
         let src = std::fs::read_to_string(&path).expect("generated source");
+        #[cfg(feature = "policy")]
         assert!(
             !src.contains("NoopHooks"),
             "{proto}: generated code names NoopHooks"
@@ -100,21 +100,6 @@ fn generated_sources_default_to_mode_hooks() {
     }
 }
 
-/// In Masa mode the generated stubs must actually run the policy.
-#[cfg(feature = "masa")]
-#[test]
-fn masa_mode_does_not_fall_back_to_noop_hooks() {
-    assert_ne!(
-        TypeId::of::<masa::DefaultHooks>(),
-        TypeId::of::<NoopHooks>(),
-        "masa feature is on but masa::DefaultHooks resolved to NoopHooks"
-    );
-    assert_ne!(
-        TypeId::of::<frontend::frontend_client::FrontendClient<Channel>>(),
-        TypeId::of::<frontend::frontend_client::FrontendClient<Channel, NoopHooks>>(),
-    );
-}
-
 /// In policy mode the stubs run the policy directory's stack, which is neither
 /// the no-op hooks nor (necessarily) Masa's default; every client must carry it.
 #[cfg(feature = "policy")]
@@ -132,7 +117,7 @@ fn policy_mode_stubs_run_the_policy_directory_stack() {
     // The stack must be the declared one, not a stand-in type with the same name.
     assert_eq!(
         TypeId::of::<ModeHooks>(),
-        TypeId::of::<masa_policy::PolicyHooks<hotel_policy::Stack>>()
+        TypeId::of::<rpcstack_tonic::PolicyHooks<hotel_policy::Stack>>()
     );
 }
 
@@ -152,17 +137,8 @@ fn policy_mode_run_queue_is_the_policy_queue() {
 }
 
 /// Baseline mode is the no-op hook stack: stubs pay no policy cost.
-#[cfg(not(any(
-    feature = "policy",
-    feature = "sched_fifo",
-    feature = "sched_slo",
-    feature = "sched_tailclipper",
-    feature = "sched_oracle"
-)))]
+#[cfg(not(feature = "policy"))]
 #[test]
 fn baseline_mode_uses_noop_hooks() {
-    assert_eq!(
-        TypeId::of::<masa::DefaultHooks>(),
-        TypeId::of::<NoopHooks>()
-    );
+    assert_eq!(TypeId::of::<ModeHooks>(), TypeId::of::<NoopHooks>());
 }

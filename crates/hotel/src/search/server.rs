@@ -11,7 +11,7 @@ pub mod hotel_tonic {
 }
 
 use app_utils::stats::latency::{new_latency_tracker, spawn_latency_logger, SyncLatencyTracker};
-use masa::transport::LoadBalancedChannel;
+use tonic::transport::Channel;
 
 use std::time::Duration;
 use tonic::{Request, Response, Status};
@@ -24,8 +24,8 @@ use hotel_tonic::{
 use crate::config::{GeoConfig, RateConfig};
 
 pub struct SearchImpl {
-    geo_client: GeoClient<LoadBalancedChannel>,
-    rate_client: RateClient<LoadBalancedChannel>,
+    geo_client: GeoClient<Channel>,
+    rate_client: RateClient<Channel>,
     latency_tracker: SyncLatencyTracker,
 }
 

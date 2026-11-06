@@ -18,13 +18,18 @@ fn run_queue_is_the_policy_queue() {
     );
 }
 
-/// The hooks are a real policy stack, not the no-op hooks.
+/// The hooks are the policy crate's (possibly empty) stack, not `NoopHooks`.
 #[test]
 fn hooks_are_not_noop() {
     assert_ne!(
         TypeId::of::<hotel_policy::Hooks>(),
         TypeId::of::<tonic::rpcstack::noop::NoopHooks>()
     );
-    let name = std::any::type_name::<hotel_policy::Stack>();
-    assert!(name.contains("BudgetModule"), "{name}");
+    // The policy crate's own hooks type: a PolicyHooks over its Stack.
+    assert_eq!(
+        TypeId::of::<hotel_policy::Hooks>(),
+        TypeId::of::<rpcstack_tonic::PolicyHooks<hotel_policy::Stack>>()
+    );
+    let name = std::any::type_name::<hotel_policy::Hooks>();
+    assert!(name.contains("PolicyHooks"), "{name}");
 }

@@ -1,30 +1,23 @@
 //! SLOT 2: the policy-module stack and the hooks type of every generated stub.
 //!
-//! `Stack` lists the modules in the order they run in pre-hooks (and in the
-//! reverse order in post-hooks): budget -> deadline guard -> estimation ->
-//! admission. The budget module must stay first: every other module reads the
-//! budget it opens, and the framework seals each child's budget after all
-//! modules ran. This is exactly Masa's `MasaStack` for the feature set
-//! `sched_slo,abort_slo,signal_slack,est_mean_var,ac_pred` (its other slots,
-//! oracle and queue-latency, are disabled there and omitted here).
+//! `Stack` lists the modules that run in the hooks of every gRPC client and
+//! server stub: in list order in pre-hooks, in reverse order in post-hooks. It
+//! starts EMPTY (a pass-through), so the `policy` mode behaves like `baseline`.
+//! `Hooks` is the policy crate's own type (never `NoopHooks`), even while it
+//! does nothing; it is the name the hotel crate's `build.rs` refers to.
 //!
-//! To change the policy: add, remove or reorder modules, or write a module
-//! implementing `masa_policy::Module` and put it in the list. See
-//! rpcstack's `docs/POLICY_MODULES.md` and `README.md` in this crate's
-//! directory. Keep `Hooks` as the name `build.rs` of the hotel crate refers to.
+//! To add a policy, list modules: `policy_stack![A, B, ...]`, where each is a type
+//! implementing `rpcstack::Module`. rpcstack's published policies (the
+//! `rpcstack/` submodule's `examples/`: masa, breakwater, dagor, rajomon,
+//! c3, ...) show modules and whole stacks, e.g. `examples/masa/masa-policy/src/masa_stack.rs`;
+//! `docs/PAPERS.md` and `docs/VIBESYS.md` explain them. A module an example
+//! crate defines needs that crate as a dependency in this crate's `Cargo.toml`
+//! (a git dependency at the same rev as the framework).
 
-use masa_policy::modules::{
-    BudgetModule, E2eDeadlineGuardModule, EstimationModule, PredAdmissionModule,
-};
-use masa_policy::policy_stack;
+use rpcstack::policy_stack;
 
-/// The module stack.
-pub type Stack = policy_stack![
-    BudgetModule,
-    E2eDeadlineGuardModule,
-    EstimationModule,
-    PredAdmissionModule
-];
+/// The module stack: empty.
+pub type Stack = policy_stack![];
 
 /// The hooks every generated client and server stub runs.
-pub type Hooks = masa_policy::PolicyHooks<Stack>;
+pub type Hooks = rpcstack_tonic::PolicyHooks<Stack>;

@@ -28,7 +28,7 @@ pub mod hotel_tonic {
 use crate::config::HotelConfig;
 // use hotel_tonic::review::review_client::ReviewClient;
 
-use masa::transport::LoadBalancedChannel;
+use tonic::transport::Channel;
 use tonic::{Request, Response, Status};
 
 use hotel_tonic::{
@@ -39,28 +39,19 @@ use hotel_tonic::{
     search::search_client::SearchClient, user, user::user_client::UserClient,
 };
 
-use hotel::profile_layer::extract_latency_traces;
-
-#[cfg(feature = "trace_queue_latency")]
-fn queueing_latency<T>(response: &Response<T>) -> u64 {
-    masa::queue_latencies_from_metadata(response.metadata())
-        .map(|ql| ql.initial + ql.resume)
-        .unwrap_or(0)
-}
-
-#[cfg(not(feature = "trace_queue_latency"))]
+/// No policy reports per-service queueing latency; the response fields stay 0.
 fn queueing_latency<T>(_response: &Response<T>) -> u64 {
     0
 }
 
 pub struct FrontendImpl {
-    search_client: SearchClient<LoadBalancedChannel>,
-    reservation_client: ReservationClient<LoadBalancedChannel>,
-    profile_client: ProfileClient<LoadBalancedChannel>,
-    user_client: UserClient<LoadBalancedChannel>,
-    recommendation_client: RecommendationClient<LoadBalancedChannel>,
-    rate_client: RateClient<LoadBalancedChannel>,
-    // review_client: ReviewClient<LoadBalancedChannel>,
+    search_client: SearchClient<Channel>,
+    reservation_client: ReservationClient<Channel>,
+    profile_client: ProfileClient<Channel>,
+    user_client: UserClient<Channel>,
+    recommendation_client: RecommendationClient<Channel>,
+    rate_client: RateClient<Channel>,
+    // review_client: ReviewClient<Channel>,
 }
 
 impl FrontendImpl {
@@ -151,11 +142,7 @@ impl Frontend for FrontendImpl {
         &self,
         request: Request<frontend::SearchRequest>,
     ) -> Result<Response<frontend::SearchResponse>, Status> {
-        use masa::time_now;
-
         let request = request.into_inner();
-
-        let mut child_traces = Vec::new();
 
         let mut search_client = self.search_client.clone();
         let search_req = search::NearbyRequest {
@@ -164,20 +151,8 @@ impl Frontend for FrontendImpl {
             in_date: request.in_date.clone(),
             out_date: request.out_date.clone(),
         };
-        let search_start_time = time_now();
         let search_resp = search_client.handle_nearby(search_req).await?;
         let search_q_lat = queueing_latency(&search_resp);
-        let search_header = search_resp.metadata();
-        match search_header.get("X-Latency-Traces") {
-            Some(_) => {
-                child_traces.push("search".to_string());
-                child_traces.push(search_start_time.to_string());
-                child_traces.extend(
-                    extract_latency_traces(search_header).expect("missing X-Latency-Traces header"),
-                );
-            }
-            None => {}
-        }
         let nearby_response = search_resp.into_inner();
 
         let mut reservation_client = self.reservation_client.clone();
@@ -189,21 +164,8 @@ impl Frontend for FrontendImpl {
             room_number: 1,
         };
 
-        let reservation_start_time = time_now();
         let span_response = reservation_client.check_availability(span_request).await?;
         let reservation_q_lat = queueing_latency(&span_response);
-        let reservation_header = span_response.metadata();
-        match reservation_header.get("X-Latency-Traces") {
-            Some(_) => {
-                child_traces.push("reservation".to_string());
-                child_traces.push(reservation_start_time.to_string());
-                child_traces.extend(
-                    extract_latency_traces(reservation_header)
-                        .expect("missing X-Latency-Traces header"),
-                );
-            }
-            None => {}
-        }
         let availability_response = span_response.into_inner();
 
         let mut profile_client = self.profile_client.clone();
@@ -211,21 +173,8 @@ impl Frontend for FrontendImpl {
             hotel_ids: availability_response.hotel_ids,
             locale: request.locale.unwrap_or_else(|| "en".to_string()),
         };
-        let profile_start_time = time_now();
         let profile_response = profile_client.get_profiles(profile_request).await?;
         let profile_q_lat = queueing_latency(&profile_response);
-        let profile_header = profile_response.metadata();
-        match profile_header.get("X-Latency-Traces") {
-            Some(_) => {
-                child_traces.push("profile".to_string());
-                child_traces.push(profile_start_time.to_string());
-                child_traces.extend(
-                    extract_latency_traces(profile_header)
-                        .expect("missing X-Latency-Traces header"),
-                );
-            }
-            None => {}
-        }
         let response = profile_response.into_inner();
 
         let mut hotels = Vec::new();
@@ -242,7 +191,7 @@ impl Frontend for FrontendImpl {
 
         let response = frontend::SearchResponse {
             hotels,
-            child_traces,
+            child_traces: Vec::new(),
             search_queueing_latency: search_q_lat,
             reservation_queueing_latency: reservation_q_lat,
             profile_queueing_latency: profile_q_lat,

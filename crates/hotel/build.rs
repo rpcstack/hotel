@@ -2,28 +2,37 @@ use std::{env, path::PathBuf};
 
 /// Every generated client and server must default to the mode's hooks. Without
 /// this, rpcstack's tonic-build falls back to `tonic::rpcstack::noop::NoopHooks`
-/// and the policy silently does nothing. `tests/hooks.rs` guards this too.
+/// and a policy silently does nothing. `tests/hooks.rs` guards this too.
 ///
-/// `baseline` and `masa` use Masa's feature-selected `masa::DefaultHooks`; the
-/// `policy` mode uses the stack the policy directory defines
-/// (`policy/src/stack.rs`).
+/// `baseline` uses the framework's no-op hooks (spelled out, so the default is
+/// explicit); `policy` uses the stack the policy directory defines
+/// (`policy/src/stack.rs`), and there a stub that names `NoopHooks` anywhere
+/// fails the build.
+const NOOP_HOOKS: &str = "tonic::rpcstack::noop::NoopHooks";
+
+fn policy_mode() -> bool {
+    env::var_os("CARGO_FEATURE_POLICY").is_some()
+}
+
 fn default_hooks() -> &'static str {
-    if env::var_os("CARGO_FEATURE_POLICY").is_some() {
+    if policy_mode() {
         "hotel_policy::Hooks"
     } else {
-        "masa::DefaultHooks"
+        NOOP_HOOKS
     }
 }
 
 /// Fail the build if a generated stub does not default to `hooks` (client and
-/// server: exactly two defaults) or names the no-op hooks anywhere.
+/// server: exactly two defaults), or, in policy mode, names the no-op hooks.
 fn assert_generated_hooks(out_dir: &std::path::Path, name: &str, hooks: &str) {
     let src = std::fs::read_to_string(out_dir.join(format!("{name}.rs")))
         .unwrap_or_else(|e| panic!("generated {name}.rs: {e}"));
-    assert!(
-        !src.contains("NoopHooks"),
-        "{name}: generated code names NoopHooks; set default_hooks_path"
-    );
+    if policy_mode() {
+        assert!(
+            !src.contains("NoopHooks"),
+            "{name}: generated code names NoopHooks in policy mode; set default_hooks_path"
+        );
+    }
     let n = src
         .matches(&format!("tonic::rpcstack::Hooks = {hooks}"))
         .count();

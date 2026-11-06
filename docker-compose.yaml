@@ -1,8 +1,7 @@
 # Hotel on rpcstack: 9 services, their MongoDB/Redis backends and the load generator.
 #
-#   docker compose up --build                 # baseline (no policy)
-#   MODE=masa docker compose up --build       # Masa composed policy
-#   MODE=policy docker compose up --build     # policy/ directory (starts equal to masa)
+#   docker compose up --build                 # baseline (framework defaults)
+#   MODE=policy docker compose up --build     # policy/ directory (starts as a no-op, like baseline)
 #
 # The frontend serves gRPC on 8660 and the HTTP/JSON API (DeathStarBench's Go
 # frontend API) on 5000; both are published.

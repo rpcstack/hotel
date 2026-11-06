@@ -26,8 +26,7 @@ use app_utils::{
 };
 use frontend::frontend_client::FrontendClient;
 
-use masa::MasaRequestExt;
-use masa::{Context, RootContext};
+use app_utils::root_context::RootContext;
 use tonic::Response;
 use tonic::Status;
 
@@ -68,8 +67,7 @@ impl Client for HotelClient {
     async fn ping(client: &mut Self::FrontendClient) -> Result<(), tonic::Status> {
         let request = tonic::Request::new(frontend::PingRequest {
             message: "ping".to_string(),
-        })
-        .with_masa_context(&Context::default());
+        });
         client.handle_ping(request).await.map(|_| ())
     }
 }

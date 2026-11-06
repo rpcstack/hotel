@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the hotel image for MODE, push it to the local registry and deploy.
 #
-#   scripts/k8s-deploy.sh [baseline|masa|policy]
+#   scripts/k8s-deploy.sh [baseline|policy]
 #
 # Expects the cluster from scripts/kind-up.sh (or any cluster that can pull
 # from $REGISTRY). Environment: KIND_CLUSTER (kubectl context is
@@ -14,7 +14,7 @@
 # local buildctl, else the $BUILDCTL_IMAGE container).
 set -euo pipefail
 MODE="${1:-baseline}"
-case "$MODE" in baseline|masa|policy) ;; *) echo "usage: $0 [baseline|masa|policy]" >&2; exit 2 ;; esac
+case "$MODE" in baseline|policy) ;; *) echo "usage: $0 [baseline|policy]" >&2; exit 2 ;; esac
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLUSTER="${KIND_CLUSTER:-rpcstack-hotel}"
 REGISTRY="${REGISTRY:-localhost:${REGISTRY_PORT:-5001}}"

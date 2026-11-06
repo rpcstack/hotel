@@ -3,9 +3,9 @@
 The DeathStarBench **hotel reservation** microservice benchmark, written in Rust
 on [rpcstack](https://github.com/rpcstack/rpcstack): Tonic gRPC services whose
 generated stubs run an rpcstack policy stack. Three policy modes are built from
-the same source: `baseline` (no policy), `masa` (the Masa composed policy) and
-`policy` (the RPC policy of the editable [`policy/`](policy/README.md)
-directory, which starts out equal to `masa`). The frontend serves its public API
+the same source: `baseline` (the framework defaults: no-op hooks, FIFO run
+queue) and `policy` (the RPC policy of the editable [`policy/`](policy/README.md)
+directory, which starts as a no-op, like `baseline`). The frontend serves its public API
 over HTTP/JSON, matching DeathStarBench's Go hotel frontend, as well as gRPC.
 
 ![Hotel call graph](assets/hotel_callgraph.jpg)
@@ -28,7 +28,7 @@ fill the cache from MongoDB ("MC" in the figure; this port uses Redis).
 | review | 8667 | review-mongo, review-redis | (standalone; frontend's review API is a stub) |
 
 The load generator (`hotel_client_bench`) sends `Search` and `Reservation`
-requests at a fixed rate over gRPC, each carrying a Masa root context with its
+requests at a fixed rate over gRPC, each carrying a root context with its
 SLO, and writes one CSV row per request.
 
 ## HTTP API
@@ -37,7 +37,7 @@ The frontend also serves the same routes, parameters, status codes and JSON
 shapes as the HTTP frontend of DeathStarBench's Go hotel reservation
 (`hotelReservation/services/frontend`), on port 5000, so one HTTP load generator
 can drive both applications. Every request enters the RPC stack like a
-`hotel_client_bench` request: the frontend creates its Masa root context
+`hotel_client_bench` request: the frontend creates its root context
 (API name, deadline = now + SLO) and calls the frontend service in process, so
 client hooks, the frontend's server hooks and its child RPCs run as for a gRPC
 client. The per-route SLO is application config, `frontend.sloMs` in
@@ -98,8 +98,8 @@ The gRPC frontend (`HandleSearch`, `HandleReservation`, ...) is unchanged for
 Layout: `k8s/base` plus `k8s/overlays/<mode>` (kustomize).
 
 ```sh
-MODE=masa docker compose up --build                       # Compose (omit MODE for baseline; or policy)
-scripts/kind-up.sh && scripts/k8s-deploy.sh masa          # Kubernetes (or: baseline, policy)
+MODE=policy docker compose up --build                     # Compose (omit MODE for baseline)
+scripts/kind-up.sh && scripts/k8s-deploy.sh policy        # Kubernetes (or: baseline)
 ```
 
 ## Quick start: Docker Compose
@@ -109,7 +109,6 @@ except `rust`, `debian`, `mongo:7.0` and `redis:7.2`.
 
 ```sh
 docker compose up --build                 # baseline
-MODE=masa docker compose up --build       # Masa policy
 MODE=policy docker compose up --build     # the policy/ directory's policy
 ```
 
@@ -135,7 +134,7 @@ Requires Docker, [kind](https://kind.sigs.k8s.io/) and kubectl.
 
 ```sh
 scripts/kind-up.sh                 # kind cluster "rpcstack-hotel" + registry:2 on localhost:5001
-scripts/k8s-deploy.sh masa         # build, push to the local registry, kubectl apply
+scripts/k8s-deploy.sh policy       # build, push to the local registry, kubectl apply
 kubectl -n rpcstack-hotel get pods
 scripts/k8s-teardown.sh --cluster  # delete namespace, cluster and registry
 ```
@@ -153,52 +152,63 @@ to avoid clashes; any cluster that can pull from `$REGISTRY` works.
 
 | Mode | Cargo features of `hotel` | Generated stub hooks |
 | --- | --- | --- |
-| `baseline` | `baseline` (none) | `masa::DefaultHooks` = `tonic::rpcstack::noop::NoopHooks` |
-| `masa` | `sched_slo,abort_slo,signal_slack,est_mean_var,ac_pred` | `masa_policy::PolicyHooks` (Masa stack) |
-| `policy` | `policy` (depends on the `hotel-policy` crate in `policy/`) | `hotel_policy::Hooks` = `PolicyHooks<hotel_policy::Stack>` |
+| `baseline` | `baseline` (none) | `tonic::rpcstack::noop::NoopHooks`; run queue: the framework default (FIFO) |
+| `policy` | `policy` (depends on the `hotel-policy` crate in `policy/`) | `hotel_policy::Hooks` = `PolicyHooks<hotel_policy::Stack>`; run queue: `policy/queue/queue.rs` |
 
-`policy` is `masa` with both policy slots moved into one directory an
-optimization agent edits: the run-queue scheduler (rpcstack's `sched_custom`
-feature, with `RPCSTACK_QUEUE_SOURCE` pointing at `policy/queue/queue.rs`) and
-the module stack behind the hooks (`policy/src/stack.rs`, wired through
-`default_hooks_path("hotel_policy::Hooks")`). Its initial content reproduces
-`masa` (same priority-heap queue, same four modules), so the first numbers
-agree. See [policy/README.md](policy/README.md) for the slots, how to test a
-change and the invariants a policy keeps. Build modes one at a time, with
-explicit packages as `scripts/check.sh` does; `--workspace` with one mode's
-feature would let `hotel-policy` enable Masa features in a `baseline` build.
+`policy` puts both policy slots in one directory an optimization agent edits:
+the run-queue scheduler (rpcstack's `sched_custom` feature, with
+`RPCSTACK_QUEUE_SOURCE` pointing at `policy/queue/queue.rs`) and the module
+stack behind the hooks (`policy/src/stack.rs`, wired through
+`default_hooks_path("hotel_policy::Hooks")`). Its initial content is a no-op (a
+FIFO queue and an empty module stack), so its numbers should match
+`baseline`'s. See [policy/README.md](policy/README.md) for the slots, how to
+test a change and the invariants a policy keeps. Build modes one at a time,
+with explicit packages as `scripts/check.sh` does; `--workspace` with one mode's
+feature would let `hotel-policy` enable rpcstack features in a `baseline` build.
+
+The application depends on the rpcstack framework only: no Masa or other
+published policy. The request's deadline is application configuration (a root
+context stamped as the gRPC `grpc-timeout`, `crates/app-utils/src/root_context.rs`),
+because the framework core has no notion of deadlines or SLOs; a policy that
+wants budgets, deadline propagation or admission supplies its own modules.
 
 The mode is chosen at build time: Cargo feature → Docker build arg `MODE` →
-`MODE` env for Compose, or overlay for Kubernetes. Each individual Masa feature
-(`sched_fifo`, `abort_slack`, `trace_queue_latency`, `ac_rajomon`, ...) is also
-exposed by the `hotel` crate; build an image with an explicit list via
-`docker build --build-arg FEATURES=sched_slo,abort_slo .` (or `FEATURES=...`
-with Compose). `docker run --rm rpcstack-hotel:<mode> mode` prints what an image
-was built with.
+`MODE` env for Compose, or overlay for Kubernetes. `docker run --rm
+rpcstack-hotel:<mode> mode` prints what an image was built with. Scheduling is
+cooperative: rpcstack reorders and rejects work between future polls; it does
+not preempt a running handler.
 
-The masa preset is the one documented in rpcstack's
-`examples/masa/README.md`. Scheduling is cooperative: rpcstack reorders and
-rejects work between future polls; it does not preempt a running handler.
+## The rpcstack framework source (`rpcstack/` submodule)
+
+`rpcstack/` is a git submodule of the framework, pinned to the same commit as
+the Cargo git dependencies in `Cargo.toml`; `scripts/check.sh` fails if the two
+differ. It is **read-only reference material**: the framework source
+(`libs/`), `examples/` (the published policies: masa, breakwater, dagor,
+rajomon, tailclipper, ...), `docs/PAPERS.md` and `docs/VIBESYS.md`. Fetch it
+with `git submodule update --init rpcstack` (or `git clone --recurse-submodules`).
+The build never needs it: Cargo takes rpcstack from git at the pinned rev, and
+Docker and CI builds do not initialize submodules. To move the pin, change the
+`rev` in `Cargo.toml` (workspace dependencies and `[patch.crates-io]`), update
+the lock file and check out the same commit in `rpcstack/`.
 
 ## Configuration
 
 * `config/hotel.json`: service addresses (Compose service names, which are also
   the Kubernetes Service names), ports, data sizes, cache-miss and user-check
   probabilities. With `replicas: 1` a service is dialled by name; with
-  `replicas: N > 1` Masa's client-side round robin dials `<ip>-1 .. <ip>-N`.
+  `replicas: N > 1` the client balances over `<ip>-1 .. <ip>-N`.
 * `config/gen_config.json`: load generator (APIs, SLOs in µs, timeouts in ms,
   rps list, warm-up and duration, optional `ApiWeights` and `MaxInFlight`).
 * `config/smoke/*.json`: the smoke test's moderate, overload and recovery runs.
-* `LOG_LEVEL` / `RUST_LOG` control logging. `MASA_POLICY_PARAMS_PATH` points
-  Masa at a policy-parameters file if you mount one.
+* `LOG_LEVEL` / `RUST_LOG` control logging.
 
 ## Testing
 
 ```sh
 scripts/test.sh                 # cargo test, all modes (incl. hooks regression test, policy/ tests)
-scripts/check.sh                # fmt, rpcstack pin, single tokio/hyper, -D warnings, all modes
-scripts/smoke-compose.sh masa   # full stack under Compose (also: baseline, policy)
-scripts/smoke-k8s.sh masa       # full stack on kind (also: baseline, policy)
+scripts/check.sh                # fmt, rpcstack pin (incl. submodule), single tokio/hyper, -D warnings, all modes
+scripts/smoke-compose.sh policy # full stack under Compose (also: baseline)
+scripts/smoke-k8s.sh policy     # full stack on kind (also: baseline)
 ```
 
 The smoke scripts bring the stack up, then:
@@ -206,33 +216,24 @@ The smoke scripts bring the stack up, then:
 0. **HTTP API check** (`hotel_http_check`): every HTTP route answers with the
    status and JSON shape described above; the unsupported owner routes answer
    501.
-1. **Policy-liveness probe** (`hotel_policy_probe`): waits for an end-to-end
-   Search, sends 20 control Searches with a 5 s SLO (all must succeed), then
-   sends each of the 9 services one request whose Masa context deadline has
-   already expired. In `masa` and `policy` mode (the smoke treats `policy` as `masa`) every service must reject it with
-   `DEADLINE_EXCEEDED "/EarlyReturn?src=<that service>…"`, produced by Masa's
-   deadline guard in that service's server hooks before the handler runs. In
-   `baseline` none may: the no-op hooks ignore the context and the handler
-   answers. So the masa check fails on a baseline build, and on any service
-   whose stubs fell back to no-op hooks. In `baseline` mode the smoke also
-   runs the probe with `--expect masa` as a negative control and fails unless
-   that run reports `PROBE FAIL`.
-2. **Moderate load** (100 rps, 30 s, SLO 200 ms): zero transport errors and
-   ≥ 99 % of requests completed.
-3. **Overload burst** (masa only; 4000 rps, 10 s, SLO 20 ms): at least one
-   request must be rejected or aborted with `/EarlyReturn`.
-4. **Recovery** (masa only; 100 rps, 20 s): ≥ 99 % completed and zero
-   transport errors over the last 5 s. Masa's predictive admission is an AIMD
-   controller that reopens only as admitted requests complete, so the first
-   seconds after an overload still shed load by design.
+1. **Stack probe** (`hotel_policy_probe`): waits for an end-to-end Search,
+   sends 20 control Searches with a 5 s SLO (all must succeed), then sends each
+   of the 9 services one ordinary request directly (all must succeed). It is
+   policy-agnostic: the no-op `baseline` and initial `policy` stacks pass, as
+   should any policy that does not reject ordinary traffic.
+2. **Moderate load** (100 rps, 30 s, SLO 200 ms): zero transport errors, no
+   rejected requests and >= 99 % of requests completed.
+3. **Overload burst** (4000 rps, 10 s, SLO 20 ms): the stack has no admission
+   control (the initial `policy` is a no-op), so requests time out (or reset)
+   while it lasts.
+4. **Recovery** (100 rps, 20 s): >= 99 % of both `Reservation` and `Search`
+   requests completed over the last 5 s, zero transport errors. This is the
+   regression check for the MongoDB wedge described next.
 5. The probe runs again; no service log may contain a panic and no
    container/pod may restart during the run.
 
-In `baseline` mode the same burst runs without admission control, so requests
-time out (or reset) while it lasts, and a recovery run
-(100 rps, 20 s) must then answer >= 99 % of both `Reservation` and `Search`
-requests over its last 5 s. This is the regression check for the MongoDB wedge
-described next.
+A policy that sheds load or enforces deadlines needs its own thresholds in the
+smoke scripts (`--max-rejected 0` and the recovery check assume nothing is shed).
 
 ### Known issue (fixed): reservation MongoDB wedge
 
@@ -276,7 +277,8 @@ policy/               the editable RPC policy: run queue + module stack (policy 
 config/               runtime configuration (mounted into containers)
 Dockerfile            one builder, one runtime image; docker/entrypoint.sh selects the binary
 docker-compose.yaml   full stack + load generator
-k8s/                  kustomize base (baseline) and the masa and policy overlays
+k8s/                  kustomize base (baseline) and the policy overlay
+rpcstack/             read-only framework source (git submodule, same commit as the Cargo rev)
 scripts/              test/check/format, smoke, kind and deploy helpers
 ```
 
@@ -288,8 +290,10 @@ hotelReservation. Built on rpcstack at
 `de0cedc080882469b316c8125b7ad17a7c93e7fb`. Changes from the source:
 dependencies trimmed to those used (the tonic-example feature set, unused
 memcached pool and `app-util-macros` were dropped); `build.rs` sets
-`default_hooks_path("masa::DefaultHooks")` for every proto (rpcstack stubs
-otherwise default to no-op hooks); single-replica services are dialled by DNS
-name; added the policy probe, Docker/Compose/Kubernetes deployment and smoke
+`default_hooks_path(...)` for every proto (rpcstack stubs
+otherwise default to no-op hooks); the Masa dependency was removed (the
+client channel, the root deadline context and the probe now use Tonic and
+`app-utils` only); single-replica services are dialled by DNS
+name; added the stack probe, Docker/Compose/Kubernetes deployment and smoke
 tests. The masa experiment runner and its configs are not included. See
 [TEMPLATE.md](TEMPLATE.md) for the layout other application repositories reuse.

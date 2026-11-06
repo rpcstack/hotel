@@ -2,21 +2,19 @@
 # End-to-end smoke test of the Kubernetes deployment (same checks as
 # scripts/smoke-compose.sh, run as Jobs inside the cluster).
 #
-#   scripts/smoke-k8s.sh [baseline|masa|policy]
+#   scripts/smoke-k8s.sh [baseline|policy]
 #
 # Creates the kind cluster + registry if needed (scripts/kind-up.sh), deploys
-# MODE (scripts/k8s-deploy.sh), then runs the policy-liveness probe, moderate
-# load, an overload burst and a recovery run. Environment: KIND_CLUSTER,
+# MODE (scripts/k8s-deploy.sh), then runs the stack probe, the HTTP API check,
+# moderate load, an overload burst and a recovery run (the initial no-op
+# `policy` mode is judged exactly like `baseline`). Environment: KIND_CLUSTER,
 # REGISTRY_PORT, HOTEL_NAMESPACE, HOTEL_IMAGE_NAME, BUILDKIT_ADDR (see k8s-deploy.sh), SKIP_DEPLOY=1,
 # SKIP_KIND_UP=1 (use an existing cluster; do not run kind-up.sh), KEEP_UP=1
 # (otherwise the namespace is deleted; the cluster is kept, remove it with
 # scripts/kind-down.sh).
 set -euo pipefail
 MODE="${1:-baseline}"
-case "$MODE" in baseline|masa|policy) ;; *) echo "usage: $0 [baseline|masa|policy]" >&2; exit 2 ;; esac
-# `policy` is checked as `masa`: the policy/ directory starts out equal to it,
-# and any policy must keep rejecting expired deadlines (policy/README.md).
-KIND="$MODE"; [ "$MODE" = policy ] && KIND=masa
+case "$MODE" in baseline|policy) ;; *) echo "usage: $0 [baseline|policy]" >&2; exit 2 ;; esac
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLUSTER="${KIND_CLUSTER:-rpcstack-hotel}"
 REGISTRY="${REGISTRY:-localhost:${REGISTRY_PORT:-5001}}"
@@ -82,25 +80,16 @@ restarts() {
 }
 
 echo "image mode: $(run_job hotel-mode mode)"
-echo "== policy-liveness probe (expect $KIND)"
-run_probe() { # run_probe JOB EXPECT
-  run_job "$1" probe --expect "$2" --wait-secs 300 \
+echo "== stack probe"
+run_probe() { # run_probe JOB
+  run_job "$1" probe --wait-secs 300 \
   --frontend http://frontend:8660 \
   --target search=http://search:8668 --target geo=http://geo:8661 \
   --target rate=http://rate:8663 --target profile=http://profile:8662 \
   --target reservation=http://reservation:8666 --target user=http://user:8669 \
   --target recommendation=http://recommendation:8664 --target review=http://review:8667
 }
-run_probe hotel-probe "$KIND" | tee "$OUT/probe.txt"
-if [ "$MODE" = baseline ]; then
-  # Negative control: the masa expectation must fail against a baseline stack.
-  echo "== negative control: probe --expect masa must FAIL on baseline"
-  if run_probe hotel-probe-negative masa > "$OUT/probe-negative.txt" 2>&1; then
-    cat "$OUT/probe-negative.txt"; echo "FAIL: masa probe passed against baseline stack" >&2; exit 1
-  fi
-  grep -q "PROBE FAIL" "$OUT/probe-negative.txt" || { cat "$OUT/probe-negative.txt"; echo "FAIL: negative probe did not report PROBE FAIL" >&2; exit 1; }
-  echo "negative control ok: $(grep -c 'expected /EarlyReturn' "$OUT/probe-negative.txt") services answered without Masa hooks"
-fi
+run_probe hotel-probe | tee "$OUT/probe.txt"
 echo "== HTTP API check"
 run_job hotel-http-check http-check --http http://frontend:5000 --wait-secs 300 | tee "$OUT/http-check.txt"
 grep -q "HTTP CHECK PASS" "$OUT/http-check.txt"
@@ -112,37 +101,24 @@ load() { GEN_CONFIG="/etc/hotel/smoke-$1.json" run_job "hotel-load-$1" client-be
 
 echo "== moderate load"
 load moderate
-extra=(--max-rejected 0); [ "$KIND" = masa ] && extra=()
-check "$OUT/moderate.txt" --label moderate --min-requests 1000 --min-ok-rate "$MIN_OK" --max-transport 0 "${extra[@]}"
+check "$OUT/moderate.txt" --label moderate --min-requests 1000 --min-ok-rate "$MIN_OK" --max-transport 0 --max-rejected 0
 
-if [ "$KIND" = masa ]; then
-  echo "== overload burst"
-  load overload
-  check "$OUT/overload.txt" --label overload --min-rejected 1
+# No admission control: the burst reaches the backends and
+# requests time out while it lasts. What must hold is that the stack
+# recovers afterwards. Regression check for the reservation MongoDB wedge
+# (see README, "Known issue"): ~80 % of Reservation requests used to hang
+# forever after a mixed Search + Reservation overload.
+echo "== overload burst (timeouts and resets are expected)"
+load overload
+check "$OUT/overload.txt" --label overload --max-rejected 0
 
-  echo "== recovery"
-  load recovery
-  # Masa's predictive admission (AIMD) reopens only as admitted requests
-  # complete, so judge recovery on the last 5 s of a 20 s run at 100 rps.
-  check "$OUT/recovery.txt" --label recovery --tail-secs 5 --min-requests 300 --min-ok-rate "$MIN_OK" --max-transport 0
-else
-  # Baseline has no admission control: the burst reaches the backends and
-  # requests time out while it lasts. What must hold is that the stack
-  # recovers afterwards. Regression check for the reservation MongoDB wedge
-  # (see README, "Known issue"): ~80 % of Reservation requests used to hang
-  # forever after a mixed Search + Reservation overload.
-  echo "== overload burst (baseline: timeouts and resets are expected)"
-  load overload
-  check "$OUT/overload.txt" --label overload --max-rejected 0
-
-  echo "== recovery (baseline): Reservation must recover after the overload"
-  load recovery
-  check "$OUT/recovery.txt" --label recovery-reservation --api Reservation --tail-secs 5 --min-requests 50 --min-ok-rate "$MIN_OK" --max-transport 0
-  check "$OUT/recovery.txt" --label recovery-search --api Search --tail-secs 5 --min-requests 50 --min-ok-rate "$MIN_OK" --max-transport 0
-fi
+echo "== recovery: Reservation must recover after the overload"
+load recovery
+check "$OUT/recovery.txt" --label recovery-reservation --api Reservation --tail-secs 5 --min-requests 50 --min-ok-rate "$MIN_OK" --max-transport 0
+check "$OUT/recovery.txt" --label recovery-search --api Search --tail-secs 5 --min-requests 50 --min-ok-rate "$MIN_OK" --max-transport 0
 
 echo "== probe again (policy state and control requests after the load runs)"
-run_probe hotel-probe-after "$KIND" | tee "$OUT/probe-after-overload.txt"
+run_probe hotel-probe-after | tee "$OUT/probe-after-overload.txt"
 
 echo "== crash check"
 kc -n "$NS" logs -l app.kubernetes.io/component=hotel --all-containers --tail=-1 --prefix > "$OUT/pods.log"
