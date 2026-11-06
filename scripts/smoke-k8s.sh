@@ -57,6 +57,7 @@ spec:
       containers:
         - name: $name
           image: $IMAGE
+          imagePullPolicy: Always
           args: $args
           env: [{name: HOTEL_GEN_CONFIG, value: "${GEN_CONFIG:-/etc/hotel/gen_config.json}"}]
           volumeMounts: [{name: config, mountPath: /etc/hotel, readOnly: true}]

@@ -15,6 +15,7 @@ spec:
       containers:
         - name: frontend
           image: rpcstack-hotel
+          imagePullPolicy: Always
           args: ["frontend"]
           env: [{name: LOG_LEVEL, value: info}]
           ports: [{name: grpc, containerPort: 8660}, {name: http, containerPort: 5000}]
@@ -57,6 +58,7 @@ spec:
       containers:
         - name: search
           image: rpcstack-hotel
+          imagePullPolicy: Always
           args: ["search"]
           env: [{name: LOG_LEVEL, value: info}]
           ports: [{name: grpc, containerPort: 8668}]
@@ -96,6 +98,7 @@ spec:
       containers:
         - name: geo
           image: rpcstack-hotel
+          imagePullPolicy: Always
           args: ["geo"]
           env: [{name: LOG_LEVEL, value: info}]
           ports: [{name: grpc, containerPort: 8661}]
@@ -135,6 +138,7 @@ spec:
       containers:
         - name: rate
           image: rpcstack-hotel
+          imagePullPolicy: Always
           args: ["rate"]
           env: [{name: LOG_LEVEL, value: info}]
           ports: [{name: grpc, containerPort: 8663}]
@@ -174,6 +178,7 @@ spec:
       containers:
         - name: profile
           image: rpcstack-hotel
+          imagePullPolicy: Always
           args: ["profile"]
           env: [{name: LOG_LEVEL, value: info}]
           ports: [{name: grpc, containerPort: 8662}]
@@ -213,6 +218,7 @@ spec:
       containers:
         - name: reservation
           image: rpcstack-hotel
+          imagePullPolicy: Always
           args: ["reservation"]
           env: [{name: LOG_LEVEL, value: info}]
           ports: [{name: grpc, containerPort: 8666}]
@@ -252,6 +258,7 @@ spec:
       containers:
         - name: user
           image: rpcstack-hotel
+          imagePullPolicy: Always
           args: ["user"]
           env: [{name: LOG_LEVEL, value: info}]
           ports: [{name: grpc, containerPort: 8669}]
@@ -291,6 +298,7 @@ spec:
       containers:
         - name: recommendation
           image: rpcstack-hotel
+          imagePullPolicy: Always
           args: ["recommendation"]
           env: [{name: LOG_LEVEL, value: info}]
           ports: [{name: grpc, containerPort: 8664}]
@@ -330,6 +338,7 @@ spec:
       containers:
         - name: review
           image: rpcstack-hotel
+          imagePullPolicy: Always
           args: ["review"]
           env: [{name: LOG_LEVEL, value: info}]
           ports: [{name: grpc, containerPort: 8667}]
